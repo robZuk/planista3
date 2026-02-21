@@ -1,0 +1,276 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Struktura uczelni ───────────────────────────────────────
+
+model Faculty {
+  id             String         @id @default(uuid())
+  name           String         @unique   // "Wydział Mechaniczny"
+  shortName      String         @unique   // "WM"
+  buildings      Building[]
+  instructors    Instructor[]
+  fieldsOfStudy  FieldOfStudy[]
+  createdAt      DateTime       @default(now())
+}
+
+model FieldOfStudy {
+  id              String           @id @default(uuid())
+  name            String           // "Eksploatacja i Diagnostyka Systemów Technicznych"
+  shortName       String           // "EDST"
+  faculty         Faculty          @relation(fields: [facultyId], references: [id])
+  facultyId       String
+  specializations Specialization[]
+  studentGroups   StudentGroup[]
+  createdAt       DateTime         @default(now())
+
+  @@unique([name, facultyId])
+}
+
+model Specialization {
+  id                 String              @id @default(uuid())
+  name               String              // "Diagnostyka Urządzeń Technicznych"
+  shortName          String              // "DUT"
+  fieldOfStudy       FieldOfStudy        @relation(fields: [fieldOfStudyId], references: [id])
+  fieldOfStudyId     String
+  curriculumVersions CurriculumVersion[]
+  studentGroups      StudentGroup[]
+  createdAt          DateTime            @default(now())
+
+  @@unique([name, fieldOfStudyId])
+}
+
+// ─── Plan studiów (wersjonowany) ────────────────────────────
+
+model CurriculumVersion {
+  id               String            @id @default(uuid())
+  academicYear     String            // "2022/2023"
+  studyMode        StudyMode
+  degreeLevel      DegreeLevel
+  totalSemesters   Int               // 7
+  isActive         Boolean           @default(true)
+  specialization   Specialization    @relation(fields: [specializationId], references: [id])
+  specializationId String
+  entries          CurriculumEntry[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([specializationId, academicYear, studyMode])
+}
+
+enum StudyMode {
+  FULL_TIME   // stacjonarne
+  PART_TIME   // niestacjonarne
+}
+
+enum DegreeLevel {
+  BACHELOR    // I stopień
+  MASTER      // II stopień
+}
+
+// ─── Katalog przedmiotów ─────────────────────────────────────
+
+model Subject {
+  id        String            @id @default(uuid())
+  name      String            @unique   // "Matematyka I"
+  code      String?           @unique   // opcjonalny kod
+  entries   CurriculumEntry[]
+  createdAt DateTime          @default(now())
+}
+
+// ─── Siatka godzin ───────────────────────────────────────────
+
+model CurriculumEntry {
+  id                  String            @id @default(uuid())
+
+  curriculumVersion   CurriculumVersion @relation(fields: [curriculumVersionId], references: [id], onDelete: Cascade)
+  curriculumVersionId String
+
+  subject             Subject           @relation(fields: [subjectId], references: [id])
+  subjectId           String
+
+  instructor          Instructor?       @relation(fields: [instructorId], references: [id])
+  instructorId        String?
+
+  semester            Int               // 1–7
+  orderInSemester     Int               // kolejność wyświetlania (lp. z PDF)
+
+  hoursLecture        Int               @default(0)  // W
+  hoursExercise       Int               @default(0)  // C
+  hoursLab            Int               @default(0)  // L
+  hoursProject        Int               @default(0)  // P
+  hoursSeminar        Int               @default(0)  // S
+  ects                Int               @default(0)
+
+  assessmentType      AssessmentType    @default(CREDIT)
+
+  scheduleEntries     ScheduleEntry[]
+
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@unique([curriculumVersionId, subjectId, semester])
+}
+
+enum AssessmentType {
+  EXAM    // egzamin
+  CREDIT  // zaliczenie
+}
+
+// ─── Budynki i Sale ──────────────────────────────────────────
+
+model Building {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  address   String?
+  faculty   Faculty? @relation(fields: [facultyId], references: [id])
+  facultyId String?
+  rooms     Room[]
+  createdAt DateTime @default(now())
+}
+
+model Room {
+  id              String          @id @default(uuid())
+  number          String
+  type            RoomType
+  capacity        Int
+  building        Building        @relation(fields: [buildingId], references: [id])
+  buildingId      String
+  scheduleEntries ScheduleEntry[]
+  preferredGroups StudentGroup[]
+  createdAt       DateTime        @default(now())
+
+  @@unique([number, buildingId])
+}
+
+enum RoomType {
+  LECTURE
+  EXERCISE
+  LAB
+  COMPUTER_LAB
+  SEMINAR
+  SPORTS
+}
+
+// ─── Prowadzący ──────────────────────────────────────────────
+
+model Instructor {
+  id              String          @id @default(uuid())
+  firstName       String
+  lastName        String
+  email           String          @unique
+  title           String?
+  faculty         Faculty?        @relation(fields: [facultyId], references: [id])
+  facultyId       String?
+  entries         CurriculumEntry[]
+  scheduleEntries ScheduleEntry[]
+  createdAt       DateTime        @default(now())
+}
+
+// ─── Plan zajęć ──────────────────────────────────────────────
+
+model ScheduleEntry {
+  id                String          @id @default(uuid())
+
+  curriculumEntry   CurriculumEntry @relation(fields: [curriculumEntryId], references: [id])
+  curriculumEntryId String
+
+  dayOfWeek         DayOfWeek
+  startTime         String          // "08:00"
+  endTime           String          // "09:30"
+  academicHours     Int             // liczba godzin dydaktycznych w bloku
+
+  classType         ClassType       // W / C / L / P / S
+
+  room              Room            @relation(fields: [roomId], references: [id])
+  roomId            String
+
+  instructor        Instructor      @relation(fields: [instructorId], references: [id])
+  instructorId      String
+
+  studentGroup      StudentGroup?   @relation(fields: [studentGroupId], references: [id])
+  studentGroupId    String?
+
+  semester          Int
+  academicYear      String          // "2024/2025"
+  weekType          WeekType        @default(EVERY)
+
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum ClassType {
+  LECTURE    // W
+  EXERCISE   // C
+  LAB        // L
+  PROJECT    // P
+  SEMINAR    // S
+}
+
+enum WeekType {
+  EVERY      // co tydzień
+  EVEN       // tygodnie parzyste
+  ODD        // tygodnie nieparzyste
+}
+
+// ─── Grupy studentów ─────────────────────────────────────────
+
+model StudentGroup {
+  id               String          @id @default(uuid())
+
+  // Nazwa generowana automatycznie np. "EDST-1-W", "EDST-1-C-A", "EDST-1-L-A1"
+  name             String
+
+  fieldOfStudy     FieldOfStudy    @relation(fields: [fieldOfStudyId], references: [id])
+  fieldOfStudyId   String
+
+  // null dla niższych lat (rok 1, 2) gdzie nie ma jeszcze specjalności
+  specialization   Specialization? @relation(fields: [specializationId], references: [id])
+  specializationId String?
+
+  studyYear        Int             // 1, 2, 3, 4
+  semester         Int             // 1–7
+  academicYear     String          // "2024/2025"
+
+  type             GroupType
+
+  size             Int
+
+  // Hierarchia
+  parentGroup      StudentGroup?   @relation("GroupHierarchy", fields: [parentGroupId], references: [id])
+  parentGroupId    String?
+  subGroups        StudentGroup[]  @relation("GroupHierarchy")
+
+  preferredRoom    Room?           @relation(fields: [preferredRoomId], references: [id])
+  preferredRoomId  String?
+
+  scheduleEntries  ScheduleEntry[]
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([name, semester, academicYear])
+}
+
+enum GroupType {
+  LECTURE
+  EXERCISE
+  LAB
+  PROJECT
+  SEMINAR
+}
