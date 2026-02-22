@@ -247,78 +247,78 @@ function GenerateForm({
         <CardTitle>Generuj grupy</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
-        <div className="space-y-1.5">
-          <Label>Wydział</Label>
-          <Select value={facultyId || undefined} onValueChange={(v) => { setFacultyId(v); setFieldOfStudyId(''); setSpecializationId(''); setStudyMode(''); setSemester('') }}>
-            <SelectTrigger className="w-full"><SelectValue placeholder="Wybierz wydział" /></SelectTrigger>
-            <SelectContent>
-              {faculties.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+          <div className="space-y-1.5 min-w-0">
+            <Label>Wydział</Label>
+            <Select value={facultyId || undefined} onValueChange={(v) => { setFacultyId(v); setFieldOfStudyId(''); setSpecializationId(''); setStudyMode(''); setSemester('') }}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Wybierz wydział" /></SelectTrigger>
+              <SelectContent>
+                {faculties.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="space-y-1.5">
-          <Label>Kierunek</Label>
-          <Select value={fieldOfStudyId || undefined} onValueChange={(v) => { setFieldOfStudyId(v); setSpecializationId(''); setStudyMode(''); setSemester('') }} disabled={!facultyId}>
-            <SelectTrigger className="w-full"><SelectValue placeholder="Wybierz kierunek" /></SelectTrigger>
-            <SelectContent>
-              {fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="space-y-1.5 min-w-0">
+            <Label>Kierunek</Label>
+            <Select value={fieldOfStudyId || undefined} onValueChange={(v) => { setFieldOfStudyId(v); setSpecializationId(''); setStudyMode(''); setSemester('') }} disabled={!facultyId}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Wybierz kierunek" /></SelectTrigger>
+              <SelectContent>
+                {fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="space-y-1.5">
-          <Label>Specjalność</Label>
-          <Select value={specializationId || undefined} onValueChange={(v) => { setSpecializationId(v); setStudyMode(''); setSemester('') }} disabled={!fieldOfStudyId}>
-            <SelectTrigger className="w-full"><SelectValue placeholder={!fieldOfStudyId ? 'Najpierw wybierz kierunek' : 'Wybierz specjalność'} /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Brak (ogólnie dla kierunku)</SelectItem>
-              {specs.map((s) => <SelectItem key={s.id} value={s.id}>{s.shortName} — {s.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="space-y-1.5 min-w-0">
+            <Label>Specjalność</Label>
+            <Select value={specializationId || undefined} onValueChange={(v) => { setSpecializationId(v); setStudyMode(''); setSemester('') }} disabled={!fieldOfStudyId}>
+              <SelectTrigger className="w-full"><SelectValue placeholder={!fieldOfStudyId ? 'Najpierw wybierz kierunek' : 'Wybierz specjalność'} /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Brak (ogólnie dla kierunku)</SelectItem>
+                {specs.map((s) => <SelectItem key={s.id} value={s.id}>{s.shortName} — {s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="space-y-1.5">
-          <Label>Tryb studiów</Label>
-          <Select value={studyMode || undefined} onValueChange={(v) => { setStudyMode(v); setSemester('') }} disabled={!specChosen || availableStudyModes.length === 0}>
-            <SelectTrigger>
-              <SelectValue placeholder={
-                !specChosen ? 'Najpierw wybierz specjalność'
-                : availableStudyModes.length === 0 ? 'Brak planów studiów'
-                : 'Wybierz tryb'
-              } />
-            </SelectTrigger>
-            <SelectContent>
-              {availableStudyModes.map((m) => (
-                <SelectItem key={m} value={m}>{STUDY_MODE_LABELS[m] ?? m}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="space-y-1.5 min-w-0">
+            <Label>Tryb studiów</Label>
+            <Select value={studyMode || undefined} onValueChange={(v) => { setStudyMode(v); setSemester('') }} disabled={!specChosen || availableStudyModes.length === 0}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={
+                  !specChosen ? 'Najpierw wybierz specjalność'
+                  : availableStudyModes.length === 0 ? 'Brak planów studiów'
+                  : 'Wybierz tryb'
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                {availableStudyModes.map((m) => (
+                  <SelectItem key={m} value={m}>{STUDY_MODE_LABELS[m] ?? m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="space-y-1.5">
-          <Label>Semestr</Label>
-          <Select value={semester || undefined} onValueChange={setSemester} disabled={!studyMode || availableSemesters.length === 0}>
-            <SelectTrigger>
-              <SelectValue placeholder={
-                !studyMode ? 'Najpierw wybierz tryb'
-                : availableSemesters.length === 0 ? 'Brak semestrów w siatce'
-                : 'Wybierz semestr'
-              } />
-            </SelectTrigger>
-            <SelectContent>
-              {availableSemesters.map((s) => (
-                <SelectItem key={s} value={String(s)}>Semestr {s} (rok {Math.ceil(s / 2)})</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="space-y-1.5 min-w-0">
+            <Label>Semestr</Label>
+            <Select value={semester || undefined} onValueChange={setSemester} disabled={!studyMode || availableSemesters.length === 0}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={
+                  !studyMode ? 'Najpierw wybierz tryb'
+                  : availableSemesters.length === 0 ? 'Brak semestrów w siatce'
+                  : 'Wybierz semestr'
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                {availableSemesters.map((s) => (
+                  <SelectItem key={s} value={String(s)}>Semestr {s} (rok {Math.ceil(s / 2)})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="space-y-1.5">
-          <Label>Liczba studentów</Label>
-          <Input type="number" min={1} value={totalStudents} onChange={(e) => setTotalStudents(e.target.value)} />
-        </div>
+          <div className="space-y-1.5 min-w-0">
+            <Label>Liczba studentów</Label>
+            <Input type="number" min={1} value={totalStudents} onChange={(e) => setTotalStudents(e.target.value)} />
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
