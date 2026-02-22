@@ -292,7 +292,7 @@ export function CurriculumPage() {
                .filter((v) => !selectedStudyMode || v.studyMode === selectedStudyMode)
                .map((v) => (
                 <SelectItem key={v.id} value={v.id}>
-                  {v.specialization?.shortName ?? v.specialization?.name ?? '—'} · {v.academicYear}
+                  {v.specialization?.shortName ?? v.specialization?.name ?? '—'}
                 </SelectItem>
               ))}
             </SelectContent>
