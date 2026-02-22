@@ -82,6 +82,15 @@ export const generate = async (req: Request, res: Response) => {
     })
     if (!fieldOfStudy) return res.status(404).json({ error: 'Kierunek studiów nie znaleziony' })
 
+    let groupPrefix = fieldOfStudy.shortName
+    if (specializationId) {
+      const specialization = await prisma.specialization.findUnique({
+        where: { id: specializationId },
+        select: { shortName: true },
+      })
+      if (specialization) groupPrefix = specialization.shortName
+    }
+
     // Pobierz aktywne wersje planu i sprawdź jakie typy zajęć mają godziny w tym semestrze
     const curriculumVersions = await prisma.curriculumVersion.findMany({
       where: {
@@ -161,7 +170,7 @@ export const generate = async (req: Request, res: Response) => {
 
       if (groupType === GroupType.LECTURE) {
         proposal.push({
-          name: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.LECTURE, 0),
+          name: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0),
           type: GroupType.LECTURE,
           size: totalStudents,
           parentName: null,
@@ -169,10 +178,10 @@ export const generate = async (req: Request, res: Response) => {
       } else if (groupType === GroupType.EXERCISE) {
         for (let i = 0; i < groupCount; i++) {
           proposal.push({
-            name: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.EXERCISE, i),
+            name: generateGroupName(groupPrefix, studyYear, GroupType.EXERCISE, i),
             type: GroupType.EXERCISE,
             size: groupSize,
-            parentName: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.LECTURE, 0),
+            parentName: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0),
           })
         }
       } else if (groupType === GroupType.LAB) {
@@ -184,10 +193,10 @@ export const generate = async (req: Request, res: Response) => {
           for (let labIdx = 0; labIdx < labPerExercise; labIdx++) {
             const labSize = Math.ceil(exerciseGroupSize / labPerExercise)
             proposal.push({
-              name: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.LAB, labIdx, exerciseIdx),
+              name: generateGroupName(groupPrefix, studyYear, GroupType.LAB, labIdx, exerciseIdx),
               type: GroupType.LAB,
               size: labSize,
-              parentName: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.EXERCISE, exerciseIdx),
+              parentName: generateGroupName(groupPrefix, studyYear, GroupType.EXERCISE, exerciseIdx),
             })
           }
         }
@@ -196,10 +205,10 @@ export const generate = async (req: Request, res: Response) => {
         // PROJECT i SEMINAR — dzieci grupy wykładowej
         for (let i = 0; i < groupCount; i++) {
           proposal.push({
-            name: generateGroupName(fieldOfStudy.shortName, studyYear, groupType, i),
+            name: generateGroupName(groupPrefix, studyYear, groupType, i),
             type: groupType,
             size: groupSize,
-            parentName: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.LECTURE, 0),
+            parentName: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0),
           })
         }
       }
