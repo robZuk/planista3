@@ -19,6 +19,7 @@ export const groupsApi = {
 
   confirm: (body: {
     fieldOfStudyId: string
+    specializationId?: string
     studyYear: number
     semester: number
     academicYear: string

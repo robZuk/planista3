@@ -148,26 +148,49 @@ function GenerateForm({
   onProposal: (data: {
     proposal: GroupProposalItem[]
     fieldOfStudyId: string
+    specializationId: string
     studyYear: number
     semester: number
     academicYear: string
   }) => void
 }) {
+  const { academicYear, semesterType } = useAcademicYearStore()
+  const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
+
+  const [facultyId, setFacultyId] = useState('')
   const [fieldOfStudyId, setFieldOfStudyId] = useState('')
+  const [specializationId, setSpecializationId] = useState('')
+  const [studyMode, setStudyMode] = useState('')
   const [studyYear, setStudyYear] = useState('1')
-  const [semester, setSemester] = useState('1')
-  const [academicYear, setAcademicYear] = useState('2024/2025')
+  const [semester, setSemester] = useState(String(availableSemesters[0]))
   const [totalStudents, setTotalStudents] = useState('60')
 
-  const { data: fieldsData } = useQuery({
-    queryKey: ['fields-for-groups'],
-    queryFn: () => curriculumApi.getFieldsOfStudy(),
+  const { data: facultiesData } = useQuery({
+    queryKey: ['faculties-for-groups'],
+    queryFn: () => curriculumApi.getFaculties(),
   })
+
+  const { data: fieldsData } = useQuery({
+    queryKey: ['fields-for-groups', facultyId],
+    queryFn: () => curriculumApi.getFieldsOfStudy(facultyId || undefined),
+    enabled: !!facultyId,
+  })
+
+  const { data: specsData } = useQuery({
+    queryKey: ['specs-for-groups', fieldOfStudyId],
+    queryFn: () => curriculumApi.getSpecializations(fieldOfStudyId),
+    enabled: !!fieldOfStudyId,
+  })
+
+  const faculties = facultiesData?.data.data ?? []
+  const fields = fieldsData?.data.data ?? []
+  const specs = specsData?.data.data ?? []
 
   const generateMutation = useMutation({
     mutationFn: () =>
       groupsApi.generate({
         fieldOfStudyId,
+        specializationId: specializationId || undefined,
         studyYear: parseInt(studyYear),
         semester: parseInt(semester),
         academicYear,
@@ -177,14 +200,13 @@ function GenerateForm({
       onProposal({
         proposal: res.data.data.proposal,
         fieldOfStudyId,
+        specializationId,
         studyYear: parseInt(studyYear),
         semester: parseInt(semester),
         academicYear,
       })
     },
   })
-
-  const fields = fieldsData?.data.data ?? []
 
   return (
     <Card>
@@ -194,17 +216,61 @@ function GenerateForm({
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5 col-span-2">
+            <Label>Wydział</Label>
+            <Select value={facultyId || undefined} onValueChange={(v) => { setFacultyId(v); setFieldOfStudyId(''); setSpecializationId('') }}>
+              <SelectTrigger>
+                <SelectValue placeholder="Wybierz wydział" />
+              </SelectTrigger>
+              <SelectContent>
+                {faculties.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5 col-span-2">
             <Label>Kierunek</Label>
-            <Select value={fieldOfStudyId || undefined} onValueChange={setFieldOfStudyId}>
+            <Select
+              value={fieldOfStudyId || undefined}
+              onValueChange={(v) => { setFieldOfStudyId(v); setSpecializationId('') }}
+              disabled={!facultyId}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Wybierz kierunek" />
               </SelectTrigger>
               <SelectContent>
                 {fields.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {f.shortName} — {f.name}
-                  </SelectItem>
+                  <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5 col-span-2">
+            <Label>Specjalność</Label>
+            <Select
+              value={specializationId || undefined}
+              onValueChange={setSpecializationId}
+              disabled={!fieldOfStudyId || specs.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={!fieldOfStudyId ? 'Najpierw wybierz kierunek' : specs.length === 0 ? 'Brak specjalności' : 'Wybierz specjalność'} />
+              </SelectTrigger>
+              <SelectContent>
+                {specs.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.shortName} — {s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5 col-span-2">
+            <Label>Tryb studiów</Label>
+            <Select value={studyMode || undefined} onValueChange={setStudyMode}>
+              <SelectTrigger>
+                <SelectValue placeholder="Wybierz tryb" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
+                <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -228,25 +294,13 @@ function GenerateForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {Array.from({ length: 7 }, (_, i) => (
-                  <SelectItem key={i + 1} value={String(i + 1)}>Semestr {i + 1}</SelectItem>
+                {availableSemesters.map((s) => (
+                  <SelectItem key={s} value={String(s)}>Semestr {s}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Rok akademicki</Label>
-            <Select value={academicYear} onValueChange={setAcademicYear}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="2024/2025">2024/2025</SelectItem>
-                <SelectItem value="2023/2024">2023/2024</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 col-span-2">
             <Label>Liczba studentów</Label>
             <Input
               type="number"
@@ -258,7 +312,7 @@ function GenerateForm({
         </div>
         <Button
           className="w-full"
-          disabled={!fieldOfStudyId || generateMutation.isPending}
+          disabled={!fieldOfStudyId || !specializationId || !studyMode || generateMutation.isPending}
           onClick={() => generateMutation.mutate()}
         >
           {generateMutation.isPending ? 'Generowanie...' : 'Generuj propozycję'}
@@ -278,7 +332,7 @@ function ProposalPreview({
   onCancel,
 }: {
   proposal: GroupProposalItem[]
-  meta: { fieldOfStudyId: string; studyYear: number; semester: number; academicYear: string }
+  meta: { fieldOfStudyId: string; specializationId: string; studyYear: number; semester: number; academicYear: string }
   onConfirm: () => void
   onCancel: () => void
 }) {
@@ -286,6 +340,7 @@ function ProposalPreview({
     mutationFn: () =>
       groupsApi.confirm({
         fieldOfStudyId: meta.fieldOfStudyId,
+        specializationId: meta.specializationId || undefined,
         studyYear: meta.studyYear,
         semester: meta.semester,
         academicYear: meta.academicYear,
@@ -341,7 +396,7 @@ export function GroupsPage() {
   const [filterSemester, setFilterSemester] = useState<string>('')
   const [proposal, setProposal] = useState<GroupProposalItem[] | null>(null)
   const [proposalMeta, setProposalMeta] = useState<{
-    fieldOfStudyId: string; studyYear: number; semester: number; academicYear: string
+    fieldOfStudyId: string; specializationId: string; studyYear: number; semester: number; academicYear: string
   } | null>(null)
   const [editingGroup, setEditingGroup] = useState<StudentGroup | null>(null)
 
