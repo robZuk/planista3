@@ -86,13 +86,13 @@ async function main() {
     where: {
       specializationId_academicYear_studyMode: {
         specializationId: specDUT.id,
-        academicYear: '2022/2023',
+        academicYear: '2024/2025',
         studyMode: StudyMode.FULL_TIME,
       },
     },
     update: {},
     create: {
-      academicYear: '2022/2023',
+      academicYear: '2024/2025',
       studyMode: StudyMode.FULL_TIME,
       degreeLevel: DegreeLevel.BACHELOR,
       totalSemesters: 7,
@@ -105,13 +105,13 @@ async function main() {
     where: {
       specializationId_academicYear_studyMode: {
         specializationId: specZEEW.id,
-        academicYear: '2022/2023',
+        academicYear: '2024/2025',
         studyMode: StudyMode.FULL_TIME,
       },
     },
     update: {},
     create: {
-      academicYear: '2022/2023',
+      academicYear: '2024/2025',
       studyMode: StudyMode.FULL_TIME,
       degreeLevel: DegreeLevel.BACHELOR,
       totalSemesters: 7,
@@ -119,7 +119,7 @@ async function main() {
       specializationId: specZEEW.id,
     },
   });
-  console.log('CurriculumVersions created: DUT 2022/2023, ZEEW 2022/2023');
+  console.log('CurriculumVersions created: DUT 2024/2025, ZEEW 2024/2025');
 
   // ─── Curriculum Entries (semestr 1) ──────────────────────
   const entriesData: Array<{
