@@ -109,6 +109,33 @@ export interface GroupProposalItem {
   suggestedRoom: { id: string; number: string; capacity: number; building: { name: string } } | null
 }
 
+export interface Room {
+  id: string
+  number: string
+  type: RoomType
+  capacity: number
+  buildingId: string
+}
+
+export interface Building {
+  id: string
+  name: string
+  address?: string | null
+  facultyId?: string | null
+  faculty?: { id: string; name: string; shortName: string } | null
+  rooms: Room[]
+}
+
+export interface Instructor {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  title?: string | null
+  facultyId?: string | null
+  faculty?: { id: string; name: string; shortName: string } | null
+}
+
 export interface GroupProposal {
   proposal: GroupProposalItem[]
   meta: {

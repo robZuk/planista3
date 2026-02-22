@@ -7,6 +7,9 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { CurriculumPage } from '@/pages/CurriculumPage'
 import { SchedulePage } from '@/pages/SchedulePage'
 import { GroupsPage } from '@/pages/GroupsPage'
+import { InstructorsPage } from '@/pages/InstructorsPage'
+import { BuildingsPage } from '@/pages/BuildingsPage'
+import { FacultiesPage } from '@/pages/FacultiesPage'
 
 // Inicjalizuj motyw przed pierwszym renderem — zapobiega miganiu
 const stored = localStorage.getItem('theme')
@@ -52,6 +55,30 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['ADMIN']}>
                   <GroupsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/instructors"
+              element={
+                <ProtectedRoute roles={['ADMIN', 'DEAN_OFFICE', 'INSTRUCTOR']}>
+                  <InstructorsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/buildings"
+              element={
+                <ProtectedRoute roles={['ADMIN', 'DEAN_OFFICE']}>
+                  <BuildingsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/faculties"
+              element={
+                <ProtectedRoute roles={['ADMIN', 'DEAN_OFFICE']}>
+                  <FacultiesPage />
                 </ProtectedRoute>
               }
             />

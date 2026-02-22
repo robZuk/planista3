@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, BookOpen, CalendarDays, Users, LogOut, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, BookOpen, CalendarDays, Users, GraduationCap, Building2, School, LogOut, Sun, Moon } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useTheme } from '@/hooks/useTheme'
 import type { Role } from '@/types'
@@ -37,6 +37,24 @@ const NAV_ITEMS: NavItem[] = [
     icon: <Users size={18} />,
     roles: ['ADMIN'],
   },
+  {
+    label: 'Prowadzący',
+    path: '/instructors',
+    icon: <GraduationCap size={18} />,
+    roles: ['ADMIN', 'DEAN_OFFICE', 'INSTRUCTOR'],
+  },
+  {
+    label: 'Budynki i sale',
+    path: '/buildings',
+    icon: <Building2 size={18} />,
+    roles: ['ADMIN', 'DEAN_OFFICE'],
+  },
+  {
+    label: 'Wydziały',
+    path: '/faculties',
+    icon: <School size={18} />,
+    roles: ['ADMIN', 'DEAN_OFFICE'],
+  },
 ]
 
 export function Sidebar() {
@@ -70,7 +88,7 @@ export function Sidebar() {
             to={item.path}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
+                'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer',
                 isActive
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'

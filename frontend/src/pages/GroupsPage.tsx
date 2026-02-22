@@ -39,7 +39,7 @@ function GroupTree({ group }: { group: StudentGroup }) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 py-1.5 px-2 hover:bg-muted/50 rounded-md">
+      <div className="flex items-center gap-2 py-1.5 px-2 hover:bg-muted/50 rounded-md cursor-pointer">
         <button
           onClick={() => setExpanded(!expanded)}
           className="w-4 h-4 flex items-center justify-center text-muted-foreground"

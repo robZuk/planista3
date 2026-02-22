@@ -255,27 +255,19 @@ export function CurriculumPage() {
           <Select
             value={selectedVersionId || undefined}
             onValueChange={setSelectedVersionId}
-            disabled={!selectedFieldId}
           >
             <SelectTrigger className="w-56">
               <SelectValue placeholder="Wybierz plan" />
             </SelectTrigger>
             <SelectContent>
-              {specs.flatMap((spec) =>
-                versions
-                  .filter((v) => v.specialization?.id === spec.id)
-                  .map((v) => (
-                    <SelectItem key={v.id} value={v.id}>
-                      {spec.shortName} · {v.academicYear}
-                    </SelectItem>
-                  ))
-              )}
-              {specs.length === 0 &&
-                versions.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.specialization?.name ?? '—'} · {v.academicYear}
-                  </SelectItem>
-                ))}
+              {(specs.length > 0
+                ? versions.filter((v) => specs.some((s) => s.id === v.specialization?.id))
+                : versions
+              ).map((v) => (
+                <SelectItem key={v.id} value={v.id}>
+                  {v.specialization?.shortName ?? v.specialization?.name ?? '—'} · {v.academicYear}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
