@@ -183,6 +183,135 @@ async function main() {
     console.log(`CurriculumEntries seeded for version: ${cv.id}`);
   }
 
+  // ─── Budynki ─────────────────────────────────────────────
+  const buildingA = await prisma.building.upsert({
+    where: { name: 'Budynek A' },
+    update: {},
+    create: { name: 'Budynek A', address: 'ul. Morska 81-87, Gdynia', facultyId: faculty.id },
+  });
+
+  const buildingB = await prisma.building.upsert({
+    where: { name: 'Budynek B' },
+    update: {},
+    create: { name: 'Budynek B', address: 'ul. Morska 81-87, Gdynia', facultyId: faculty.id },
+  });
+
+  const centrumSportu = await prisma.building.upsert({
+    where: { name: 'Centrum Sportu' },
+    update: {},
+    create: { name: 'Centrum Sportu', address: 'ul. Morska 81-87, Gdynia', facultyId: null },
+  });
+
+  console.log('Buildings created: Budynek A, Budynek B, Centrum Sportu');
+
+  // ─── Sale ────────────────────────────────────────────────
+  const saleA = [
+    { number: 'A101', type: 'LECTURE',  capacity: 120 },
+    { number: 'A102', type: 'LECTURE',  capacity: 80  },
+    { number: 'A103', type: 'LECTURE',  capacity: 60  },
+    { number: 'A201', type: 'EXERCISE', capacity: 30  },
+    { number: 'A202', type: 'EXERCISE', capacity: 30  },
+    { number: 'A203', type: 'EXERCISE', capacity: 30  },
+    { number: 'A204', type: 'EXERCISE', capacity: 30  },
+    { number: 'A301', type: 'SEMINAR',  capacity: 20  },
+    { number: 'A302', type: 'SEMINAR',  capacity: 20  },
+  ] as const;
+
+  for (const sala of saleA) {
+    await prisma.room.upsert({
+      where: { number_buildingId: { number: sala.number, buildingId: buildingA.id } },
+      update: {},
+      create: { ...sala, buildingId: buildingA.id },
+    });
+  }
+
+  const saleB = [
+    { number: 'B101', type: 'LAB',          capacity: 15 },
+    { number: 'B102', type: 'LAB',          capacity: 15 },
+    { number: 'B103', type: 'LAB',          capacity: 15 },
+    { number: 'B104', type: 'LAB',          capacity: 15 },
+    { number: 'B201', type: 'COMPUTER_LAB', capacity: 25 },
+    { number: 'B202', type: 'COMPUTER_LAB', capacity: 25 },
+    { number: 'B301', type: 'EXERCISE',     capacity: 30 },
+    { number: 'B302', type: 'EXERCISE',     capacity: 30 },
+  ] as const;
+
+  for (const sala of saleB) {
+    await prisma.room.upsert({
+      where: { number_buildingId: { number: sala.number, buildingId: buildingB.id } },
+      update: {},
+      create: { ...sala, buildingId: buildingB.id },
+    });
+  }
+
+  const saleSport = [
+    { number: 'Hala Główna',       type: 'SPORTS', capacity: 100 },
+    { number: 'Siłownia',          type: 'SPORTS', capacity: 30  },
+    { number: 'Sala Gimnastyczna', type: 'SPORTS', capacity: 40  },
+  ] as const;
+
+  for (const sala of saleSport) {
+    await prisma.room.upsert({
+      where: { number_buildingId: { number: sala.number, buildingId: centrumSportu.id } },
+      update: {},
+      create: { ...sala, buildingId: centrumSportu.id },
+    });
+  }
+
+  console.log('Rooms created: 9 (A) + 8 (B) + 3 (Sport) = 20');
+
+  // ─── Prowadzący ──────────────────────────────────────────
+  const prowadzacyWM = [
+    { firstName: 'Jan',       lastName: 'Kowalski',    title: 'prof. dr hab.', email: 'j.kowalski@umg.edu.pl'    },
+    { firstName: 'Anna',      lastName: 'Nowak',       title: 'dr hab.',       email: 'a.nowak@umg.edu.pl'        },
+    { firstName: 'Piotr',     lastName: 'Wiśniewski',  title: 'dr',            email: 'p.wisniewski@umg.edu.pl'   },
+    { firstName: 'Marta',     lastName: 'Wójcik',      title: 'dr',            email: 'm.wojcik@umg.edu.pl'       },
+    { firstName: 'Tomasz',    lastName: 'Kamiński',    title: 'dr inż.',       email: 't.kaminski@umg.edu.pl'     },
+    { firstName: 'Katarzyna', lastName: 'Lewandowska', title: 'dr inż.',       email: 'k.lewandowska@umg.edu.pl'  },
+    { firstName: 'Marek',     lastName: 'Zieliński',   title: 'mgr inż.',      email: 'm.zielinski@umg.edu.pl'    },
+    { firstName: 'Agnieszka', lastName: 'Szymańska',   title: 'mgr inż.',      email: 'a.szymanska@umg.edu.pl'    },
+    { firstName: 'Robert',    lastName: 'Woźniak',     title: 'dr',            email: 'r.wozniak@umg.edu.pl'      },
+    { firstName: 'Monika',    lastName: 'Dąbrowska',   title: 'dr inż.',       email: 'm.dabrowska@umg.edu.pl'    },
+    { firstName: 'Krzysztof', lastName: 'Kozłowski',   title: 'prof. dr hab.', email: 'k.kozlowski@umg.edu.pl'    },
+    { firstName: 'Ewa',       lastName: 'Jankowska',   title: 'dr',            email: 'e.jankowska@umg.edu.pl'    },
+  ];
+
+  for (const p of prowadzacyWM) {
+    await prisma.instructor.upsert({
+      where: { email: p.email },
+      update: {},
+      create: { ...p, facultyId: faculty.id },
+    });
+  }
+
+  const instruktorzyWF = [
+    { firstName: 'Zbigniew', lastName: 'Adamski',   title: 'mgr', email: 'z.adamski@umg.edu.pl'  },
+    { firstName: 'Joanna',   lastName: 'Michalska', title: 'mgr', email: 'j.michalska@umg.edu.pl' },
+  ];
+
+  for (const p of instruktorzyWF) {
+    await prisma.instructor.upsert({
+      where: { email: p.email },
+      update: {},
+      create: { ...p, facultyId: null },
+    });
+  }
+
+  const lektorzy = [
+    { firstName: 'Sarah',  lastName: 'Johnson', title: 'mgr', email: 's.johnson@umg.edu.pl' },
+    { firstName: 'Michał', lastName: 'Nowicki', title: 'mgr', email: 'm.nowicki@umg.edu.pl'  },
+  ];
+
+  for (const p of lektorzy) {
+    await prisma.instructor.upsert({
+      where: { email: p.email },
+      update: {},
+      create: { ...p, facultyId: null },
+    });
+  }
+
+  console.log('Instructors created: 12 (WM) + 2 (WF) + 2 (lektorzy) = 16');
+
   console.log('Seeding complete!');
 }
 
