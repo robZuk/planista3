@@ -20,11 +20,11 @@ const DAYS: { key: DayOfWeek; label: string }[] = [
 ]
 
 const CLASS_COLORS: Record<ClassType, string> = {
-  LECTURE: 'bg-blue-100 border-blue-400 text-blue-900',
-  EXERCISE: 'bg-green-100 border-green-400 text-green-900',
-  LAB: 'bg-orange-100 border-orange-400 text-orange-900',
-  PROJECT: 'bg-purple-100 border-purple-400 text-purple-900',
-  SEMINAR: 'bg-pink-100 border-pink-400 text-pink-900',
+  LECTURE:  'bg-blue-500/15   border-blue-400   text-blue-800   dark:bg-blue-500/20   dark:text-blue-300',
+  EXERCISE: 'bg-green-500/15  border-green-400  text-green-800  dark:bg-green-500/20  dark:text-green-300',
+  LAB:      'bg-orange-500/15 border-orange-400 text-orange-800 dark:bg-orange-500/20 dark:text-orange-300',
+  PROJECT:  'bg-purple-500/15 border-purple-400 text-purple-800 dark:bg-purple-500/20 dark:text-purple-300',
+  SEMINAR:  'bg-pink-500/15   border-pink-400   text-pink-800   dark:bg-pink-500/20   dark:text-pink-300',
 }
 
 const CLASS_LABELS: Record<ClassType, string> = {

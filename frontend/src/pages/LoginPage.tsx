@@ -33,11 +33,11 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-background">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-center text-2xl">Planista UMG</CardTitle>
-          <p className="text-center text-sm text-gray-500">Zaloguj się do systemu</p>
+          <p className="text-center text-sm text-muted-foreground">Zaloguj się do systemu</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -64,7 +64,9 @@ export function LoginPage() {
               />
             </div>
             {error && (
-              <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">{error}</p>
+              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">
+                {error}
+              </p>
             )}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Logowanie...' : 'Zaloguj się'}

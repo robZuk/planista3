@@ -75,7 +75,7 @@ function SemesterTable({
   return (
     <div className="mb-8">
       <div className="flex items-center gap-3 mb-3">
-        <h3 className="text-base font-semibold text-gray-800">Semestr {semester}</h3>
+        <h3 className="text-base font-semibold text-foreground">Semestr {semester}</h3>
         <Badge variant="secondary">{totalEcts} ECTS</Badge>
       </div>
       <div className="overflow-x-auto rounded-lg border border-border">

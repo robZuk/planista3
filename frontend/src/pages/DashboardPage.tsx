@@ -17,10 +17,10 @@ function StatCard({
   color?: 'blue' | 'green' | 'purple' | 'orange'
 }) {
   const colorMap = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    purple: 'bg-purple-50 text-purple-600',
-    orange: 'bg-orange-50 text-orange-600',
+    blue:   'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+    green:  'bg-green-500/10 text-green-600 dark:text-green-400',
+    purple: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+    orange: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
   }
   return (
     <Card>
@@ -28,7 +28,7 @@ function StatCard({
         <div className="flex items-center gap-4">
           <div className={`p-3 rounded-lg ${colorMap[color]}`}>{icon}</div>
           <div>
-            <p className="text-sm text-gray-500">{title}</p>
+            <p className="text-sm text-muted-foreground">{title}</p>
             <p className="text-2xl font-bold">{value}</p>
           </div>
         </div>
@@ -59,8 +59,8 @@ export function DashboardPage() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-        <p className="text-gray-500">
+        <h2 className="text-2xl font-bold text-foreground">Dashboard</h2>
+        <p className="text-muted-foreground">
           Witaj, <span className="font-medium">{user?.name}</span>
         </p>
       </div>
@@ -105,14 +105,14 @@ export function DashboardPage() {
             <CardContent>
               <div className="space-y-2">
                 {activeVersions.slice(0, 5).map((v) => (
-                  <div key={v.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                  <div key={v.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div>
                       <p className="text-sm font-medium">{v.specialization?.name ?? '—'}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         {v.academicYear} · {v.studyMode === 'FULL_TIME' ? 'stacjonarne' : 'niestacjonarne'}
                       </p>
                     </div>
-                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                    <span className="text-xs bg-green-500/15 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">
                       aktywna
                     </span>
                   </div>
@@ -130,14 +130,14 @@ export function DashboardPage() {
             <CardContent>
               <div className="space-y-2">
                 {groups.slice(0, 6).map((g) => (
-                  <div key={g.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                  <div key={g.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div>
                       <p className="text-sm font-medium">{g.name}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         Semestr {g.semester} · {g.academicYear}
                       </p>
                     </div>
-                    <span className="text-xs text-gray-500">{g.size} os.</span>
+                    <span className="text-xs text-muted-foreground">{g.size} os.</span>
                   </div>
                 ))}
               </div>

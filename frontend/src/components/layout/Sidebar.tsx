@@ -48,15 +48,15 @@ export function Sidebar() {
   )
 
   return (
-    <aside className="flex flex-col w-60 min-h-screen bg-gray-900 text-gray-100 dark:bg-gray-950 dark:border-r dark:border-gray-800">
-      <div className="flex items-center justify-between px-6 py-5 border-b border-gray-700 dark:border-gray-800">
+    <aside className="flex flex-col w-60 min-h-screen bg-card border-r border-border text-card-foreground">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-border">
         <div>
-          <h1 className="text-lg font-bold text-white">Planista</h1>
-          <p className="text-xs text-gray-400 mt-0.5">UMG</p>
+          <h1 className="text-lg font-bold text-foreground">Planista</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">UMG</p>
         </div>
         <button
           onClick={toggle}
-          className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           title={theme === 'dark' ? 'Tryb jasny' : 'Tryb ciemny'}
         >
           {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
@@ -72,8 +72,8 @@ export function Sidebar() {
               cn(
                 'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
                 isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )
             }
           >
@@ -83,15 +83,15 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="px-3 py-4 border-t border-gray-700 dark:border-gray-800">
+      <div className="px-3 py-4 border-t border-border">
         <div className="px-3 py-2 mb-2">
-          <p className="text-sm font-medium text-white truncate">{user?.name}</p>
-          <p className="text-xs text-gray-400 truncate">{user?.email}</p>
-          <p className="text-xs text-blue-400 mt-0.5">{user?.role}</p>
+          <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
+          <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+          <p className="text-xs text-primary mt-0.5">{user?.role}</p>
         </div>
         <button
           onClick={logout}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+          className="flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <LogOut size={18} />
           Wyloguj

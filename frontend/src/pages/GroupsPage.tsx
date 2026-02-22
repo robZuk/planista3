@@ -26,11 +26,11 @@ const TYPE_LABELS: Record<GroupType, string> = {
 }
 
 const TYPE_COLORS: Record<GroupType, string> = {
-  LECTURE: 'bg-blue-100 text-blue-800',
-  EXERCISE: 'bg-green-100 text-green-800',
-  LAB: 'bg-orange-100 text-orange-800',
-  PROJECT: 'bg-purple-100 text-purple-800',
-  SEMINAR: 'bg-pink-100 text-pink-800',
+  LECTURE:  'bg-blue-500/15   text-blue-700   dark:bg-blue-500/20   dark:text-blue-300',
+  EXERCISE: 'bg-green-500/15  text-green-700  dark:bg-green-500/20  dark:text-green-300',
+  LAB:      'bg-orange-500/15 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
+  PROJECT:  'bg-purple-500/15 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
+  SEMINAR:  'bg-pink-500/15   text-pink-700   dark:bg-pink-500/20   dark:text-pink-300',
 }
 
 function GroupTree({ group }: { group: StudentGroup }) {
