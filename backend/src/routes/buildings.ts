@@ -10,18 +10,19 @@ import {
   updateRoom,
   removeRoom,
 } from '../controllers/buildings.controller'
+import { authenticate, authorize } from '../middleware/authenticate'
 
 const router = Router()
 
-router.get('/', getAll)
-router.post('/', create)
-router.get('/:id', getOne)
-router.put('/:id', update)
-router.delete('/:id', remove)
+router.get('/', authenticate, authorize('ADMIN', 'DEAN_OFFICE', 'INSTRUCTOR'), getAll)
+router.get('/:id', authenticate, authorize('ADMIN', 'DEAN_OFFICE', 'INSTRUCTOR'), getOne)
+router.post('/', authenticate, authorize('ADMIN'), create)
+router.put('/:id', authenticate, authorize('ADMIN'), update)
+router.delete('/:id', authenticate, authorize('ADMIN'), remove)
 
-router.get('/:id/rooms', getRooms)
-router.post('/:id/rooms', createRoom)
-router.put('/:id/rooms/:roomId', updateRoom)
-router.delete('/:id/rooms/:roomId', removeRoom)
+router.get('/:id/rooms', authenticate, authorize('ADMIN', 'DEAN_OFFICE', 'INSTRUCTOR'), getRooms)
+router.post('/:id/rooms', authenticate, authorize('ADMIN'), createRoom)
+router.put('/:id/rooms/:roomId', authenticate, authorize('ADMIN'), updateRoom)
+router.delete('/:id/rooms/:roomId', authenticate, authorize('ADMIN'), removeRoom)
 
 export default router

@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 
+import authRoutes from './routes/auth'
 import facultyRoutes from './routes/faculties'
 import fieldOfStudyRoutes from './routes/fieldsOfStudy'
 import specializationRoutes from './routes/specializations'
@@ -20,6 +21,7 @@ const PORT = process.env.PORT ?? 4000
 app.use(cors())
 app.use(express.json())
 
+app.use('/api/auth', authRoutes)
 app.use('/api/faculties', facultyRoutes)
 app.use('/api/fields-of-study', fieldOfStudyRoutes)
 app.use('/api/specializations', specializationRoutes)

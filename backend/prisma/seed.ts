@@ -1,4 +1,5 @@
 import { PrismaClient, StudyMode, DegreeLevel, AssessmentType } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -311,6 +312,20 @@ async function main() {
   }
 
   console.log('Instructors created: 12 (WM) + 2 (WF) + 2 (lektorzy) = 16');
+
+  // ─── Admin user ──────────────────────────────────────────
+  const hashedPassword = await bcrypt.hash('Admin1234!', 12);
+  await prisma.user.upsert({
+    where: { email: 'admin@umg.edu.pl' },
+    update: {},
+    create: {
+      email: 'admin@umg.edu.pl',
+      password: hashedPassword,
+      name: 'Administrator',
+      role: 'ADMIN',
+    },
+  });
+  console.log('✅ Admin: admin@umg.edu.pl / Admin1234!');
 
   console.log('Seeding complete!');
 }

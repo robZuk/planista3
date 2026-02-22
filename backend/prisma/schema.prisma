@@ -169,6 +169,7 @@ model Instructor {
   facultyId       String?
   entries         CurriculumEntry[]
   scheduleEntries ScheduleEntry[]
+  user            User?
   createdAt       DateTime        @default(now())
 }
 
@@ -260,6 +261,7 @@ model StudentGroup {
   preferredRoomId  String?
 
   scheduleEntries  ScheduleEntry[]
+  users            User[]
 
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
@@ -273,4 +275,41 @@ enum GroupType {
   LAB
   PROJECT
   SEMINAR
+}
+
+// ─── Auth ────────────────────────────────────────────────────
+
+model User {
+  id             String        @id @default(uuid())
+  email          String        @unique
+  password       String
+  role           Role
+  name           String
+
+  instructor     Instructor?   @relation(fields: [instructorId], references: [id])
+  instructorId   String?       @unique
+
+  studentGroup   StudentGroup? @relation(fields: [studentGroupId], references: [id])
+  studentGroupId String?
+
+  refreshTokens  RefreshToken[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  INSTRUCTOR
+  STUDENT
+  DEAN_OFFICE
 }

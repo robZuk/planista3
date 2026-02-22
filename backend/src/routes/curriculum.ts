@@ -11,25 +11,24 @@ import {
   deleteEntry,
   validateVersion,
 } from '../controllers/curriculum.controller'
+import { authenticate, authorize } from '../middleware/authenticate'
 
 const router = Router()
 
-// Versions
-router.get('/versions', getVersions)
-router.post('/versions', createVersion)
-router.get('/versions/:id', getVersion)
-router.put('/versions/:id', updateVersion)
-router.delete('/versions/:id', deleteVersion)
+// Versions — odczyt dla wszystkich zalogowanych
+router.get('/versions', authenticate, getVersions)
+router.get('/versions/:id', authenticate, getVersion)
+router.get('/versions/:id/validate', authenticate, validateVersion)
+router.get('/versions/:id/entries', authenticate, getEntries)
 
-// Entries (nested under versions)
-router.get('/versions/:id/entries', getEntries)
-router.post('/versions/:id/entries', addEntry)
+// Versions — zapis tylko ADMIN
+router.post('/versions', authenticate, authorize('ADMIN'), createVersion)
+router.put('/versions/:id', authenticate, authorize('ADMIN'), updateVersion)
+router.delete('/versions/:id', authenticate, authorize('ADMIN'), deleteVersion)
 
-// Entries (standalone)
-router.put('/entries/:id', updateEntry)
-router.delete('/entries/:id', deleteEntry)
-
-// Validation
-router.get('/versions/:id/validate', validateVersion)
+// Entries — zapis tylko ADMIN
+router.post('/versions/:id/entries', authenticate, authorize('ADMIN'), addEntry)
+router.put('/entries/:id', authenticate, authorize('ADMIN'), updateEntry)
+router.delete('/entries/:id', authenticate, authorize('ADMIN'), deleteEntry)
 
 export default router

@@ -3,7 +3,7 @@
 ## Kontekst projektu
 
 Buduję system zarządzania planem zajęć dla uczelni wyższej (Uniwersytet Morski w Gdyni).
-Aktualny etap: **budowanie endpointów REST API**.
+Aktualny etap: **Frontend**.
 
 ---
 
@@ -14,7 +14,7 @@ Aktualny etap: **budowanie endpointów REST API**.
 | Backend     | Node.js + Express + TypeScript  |
 | Baza danych | PostgreSQL                      |
 | ORM         | Prisma                          |
-| Auth        | JWT (następny etap)             |
+| Auth        | JWT ✅                          |
 | Frontend    | React + TypeScript (później)    |
 
 ---
@@ -48,10 +48,11 @@ scheduler-app/
 - [x] Schemat Prisma — gotowy
 - [x] Migracja — wykonana
 - [x] Seed — dane z PDF w bazie
-- [ ] Endpointy REST — **aktualny cel**
-- [ ] Walidacja siatki godzin
-- [ ] Auth JWT
-- [ ] Frontend
+- [x] Endpointy REST — gotowe
+- [x] Walidacja siatki godzin — gotowa
+- [x] Grupy studentów — gotowe
+- [x] Auth JWT — gotowe
+- [ ] Frontend — **aktualny cel**
 
 ---
 
@@ -973,3 +974,220 @@ npx prisma studio
 | Prowadzący WM | 12 |
 | Instruktorzy WF | 2 |
 | Lektorzy | 2 |
+
+---
+
+## Auth JWT
+
+### Decyzje projektowe
+
+| Kwestia | Decyzja |
+|---|---|
+| Logowanie | Email + hasło (bcrypt) |
+| Token | JWT access token (24h) + refresh token (7d) |
+| Role | ADMIN, INSTRUCTOR, STUDENT, DEAN_OFFICE |
+| OAuth | Google — dodać później |
+
+### Role i uprawnienia
+
+| Endpoint | ADMIN | DEAN_OFFICE | INSTRUCTOR | STUDENT |
+|---|---|---|---|---|
+| GET /curriculum | ✅ | ✅ | ✅ | ✅ |
+| POST/PUT/DELETE /curriculum | ✅ | ❌ | ❌ | ❌ |
+| GET /schedule | ✅ | ✅ | ✅ | ✅ |
+| POST/PUT /schedule | ✅ | ❌ | własne zajęcia | ❌ |
+| DELETE /schedule | ✅ | ❌ | ❌ | ❌ |
+| GET /groups | ✅ | ✅ | ✅ | własna grupa |
+| POST/PUT/DELETE /groups | ✅ | ❌ | ❌ | ❌ |
+| /faculties, /buildings, /instructors | ✅ | ✅ (GET) | ✅ (GET) | ❌ |
+| /auth/register | ✅ tylko admin tworzy konta | - | - | - |
+
+### Migracja — dodaj do schema.prisma
+
+```prisma
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  password     String
+  role         Role
+  name         String
+
+  // Powiązanie z prowadzącym (jeśli role = INSTRUCTOR)
+  instructor   Instructor? @relation(fields: [instructorId], references: [id])
+  instructorId String?     @unique
+
+  // Powiązanie z grupą (jeśli role = STUDENT)
+  studentGroup   StudentGroup? @relation(fields: [studentGroupId], references: [id])
+  studentGroupId String?
+
+  refreshTokens  RefreshToken[]
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  INSTRUCTOR
+  STUDENT
+  DEAN_OFFICE
+}
+```
+
+Dopisz relacje do istniejących modeli:
+
+```prisma
+// W Instructor dopisz:
+user  User?
+
+// W StudentGroup dopisz:
+users User[]
+```
+
+### Endpointy auth (/api/auth)
+
+| Metoda | Ścieżka | Dostęp | Opis |
+|--------|---------|--------|------|
+| POST | /register | ADMIN only | tworzy konto użytkownika |
+| POST | /login | publiczny | zwraca access + refresh token |
+| POST | /refresh | publiczny | wymienia refresh na nowy access token |
+| POST | /logout | zalogowany | unieważnia refresh token |
+| GET | /me | zalogowany | dane zalogowanego użytkownika |
+
+### Format tokenów
+
+```typescript
+// Access token payload
+{
+  userId: string,
+  role: Role,
+  instructorId?: string,   // jeśli INSTRUCTOR
+  studentGroupId?: string  // jeśli STUDENT
+}
+
+// POST /login — odpowiedź
+{
+  data: {
+    accessToken: string,   // ważny 24h
+    refreshToken: string,  // ważny 7d
+    user: {
+      id, email, name, role
+    }
+  }
+}
+```
+
+### Middleware
+
+Utwórz `src/middleware/authenticate.ts`:
+
+```typescript
+import { Request, Response, NextFunction } from 'express'
+import jwt from 'jsonwebtoken'
+import { Role } from '@prisma/client'
+
+export interface AuthRequest extends Request {
+  userId?: string
+  role?: Role
+  instructorId?: string
+  studentGroupId?: string
+}
+
+// Weryfikuje token — blokuje jeśli brak/nieprawidłowy
+export const authenticate = (req: AuthRequest, res: Response, next: NextFunction) => {
+  const token = req.headers.authorization?.split(' ')[1]
+  if (!token) return res.status(401).json({ error: 'Brak tokenu' })
+
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET!) as any
+    req.userId = payload.userId
+    req.role = payload.role
+    req.instructorId = payload.instructorId
+    req.studentGroupId = payload.studentGroupId
+    next()
+  } catch {
+    return res.status(401).json({ error: 'Token nieważny lub wygasł' })
+  }
+}
+
+// Sprawdza czy użytkownik ma wymaganą rolę
+export const authorize = (...roles: Role[]) =>
+  (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.role || !roles.includes(req.role)) {
+      return res.status(403).json({ error: 'Brak uprawnień' })
+    }
+    next()
+  }
+```
+
+### Użycie middleware w routach
+
+```typescript
+import { authenticate, authorize } from '../middleware/authenticate'
+
+// Tylko odczyt — wszyscy zalogowani
+router.get('/', authenticate, getAll)
+
+// Tylko admin
+router.post('/', authenticate, authorize('ADMIN'), create)
+
+// Admin lub prowadzący (własne zajęcia — logika w controllerze)
+router.put('/:id', authenticate, authorize('ADMIN', 'INSTRUCTOR'), update)
+```
+
+### Zmienne środowiskowe — dopisz do .env
+
+```env
+JWT_SECRET="twoj-bardzo-tajny-klucz-minimum-32-znaki"
+JWT_EXPIRES_IN="24h"
+JWT_REFRESH_SECRET="inny-tajny-klucz-do-refresh-tokenow"
+JWT_REFRESH_EXPIRES_IN="7d"
+```
+
+### Seed — domyślny admin
+
+Dopisz na końcu `prisma/seed.ts`:
+
+```typescript
+import bcrypt from 'bcryptjs'
+
+const hashedPassword = await bcrypt.hash('Admin1234!', 12)
+
+await prisma.user.upsert({
+  where: { email: 'admin@umg.edu.pl' },
+  update: {},
+  create: {
+    email: 'admin@umg.edu.pl',
+    password: hashedPassword,
+    name: 'Administrator',
+    role: 'ADMIN',
+  },
+})
+
+console.log('✅ Admin: admin@umg.edu.pl / Admin1234!')
+```
+
+### Kolejność implementacji
+
+1. Migracja — dodaj `User`, `RefreshToken`, enum `Role` do schema.prisma
+2. `npx prisma migrate dev --name add_auth`
+3. `src/routes/auth.ts` + `src/controllers/auth.ts`
+4. `src/middleware/authenticate.ts`
+5. Dodaj `authenticate` + `authorize` do istniejących routerów
+6. Dopisz seed admina i uruchom `npx ts-node prisma/seed.ts`
+7. Przetestuj: POST /api/auth/login → użyj tokenu w innych endpointach
+
+### Czego NIE rób na tym etapie
+
+- Nie implementuj Google OAuth — to osobny krok po fronendzie
+- Nie wysyłaj maili przy rejestracji — zbędna złożoność na razie
+- Rejestrację może wykonać tylko ADMIN — nie ma publicznego /reg
