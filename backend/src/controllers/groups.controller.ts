@@ -382,3 +382,19 @@ export const remove = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
+
+// DELETE /api/groups — usuń wszystkie grupy (opcjonalnie filtrowane)
+export const removeAll = async (req: Request, res: Response) => {
+  try {
+    const { academicYear } = req.query
+    const result = await prisma.studentGroup.deleteMany({
+      where: {
+        ...(academicYear ? { academicYear: String(academicYear) } : {}),
+        scheduleEntries: { none: {} },
+      },
+    })
+    res.json({ message: `Usunięto ${result.count} grup` })
+  } catch (error) {
+    res.status(500).json({ error: 'Błąd serwera', details: error })
+  }
+}

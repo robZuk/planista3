@@ -414,6 +414,11 @@ export function GroupsPage() {
     onSuccess: invalidate,
   })
 
+  const deleteAllMutation = useMutation({
+    mutationFn: () => groupsApi.removeAll(academicYear),
+    onSuccess: invalidate,
+  })
+
   const { data: groupsData, isLoading } = useQuery({
     queryKey: ['groups', filterSemester, academicYear],
     queryFn: () => groupsApi.getAll({ semester: filterSemester ? parseInt(filterSemester) : undefined, academicYear }),
@@ -467,6 +472,21 @@ export function GroupsPage() {
               </SelectContent>
             </Select>
             <Badge variant="secondary">{groups.length} grup</Badge>
+            {canEdit && groups.length > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="ml-auto"
+                disabled={deleteAllMutation.isPending}
+                onClick={() => {
+                  if (confirm(`Usunąć wszystkie grupy (${academicYear})?`))
+                    deleteAllMutation.mutate()
+                }}
+              >
+                <Trash2 size={14} className="mr-1" />
+                Usuń wszystkie
+              </Button>
+            )}
           </div>
 
           {isLoading && <p className="text-muted-foreground">Ładowanie...</p>}

@@ -33,5 +33,8 @@ export const groupsApi = {
 
   remove: (id: string) => client.delete(`/groups/${id}`),
 
+  removeAll: (academicYear?: string) =>
+    client.delete('/groups', { params: academicYear ? { academicYear } : undefined }),
+
   getGroupTypes: (): GroupType[] => ['LECTURE', 'EXERCISE', 'LAB', 'PROJECT', 'SEMINAR'],
 }
