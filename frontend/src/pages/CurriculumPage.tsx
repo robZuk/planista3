@@ -273,14 +273,14 @@ export function CurriculumPage() {
         </div>
 
         <div className="flex flex-col gap-1 min-w-48">
-          <label className="text-xs font-medium text-muted-foreground">Plan studiów</label>
+          <label className="text-xs font-medium text-muted-foreground">Specjalność</label>
           <Select
             value={selectedVersionId || undefined}
             onValueChange={(v) => { setSelectedVersionId(v); setFilterSemester('') }}
             disabled={!selectedFieldId}
           >
             <SelectTrigger className="w-56">
-              <SelectValue placeholder="Wybierz plan" />
+              <SelectValue placeholder="Wybierz specjalność" />
             </SelectTrigger>
             <SelectContent>
               {(specs.length > 0
