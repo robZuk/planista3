@@ -187,7 +187,7 @@ function GenerateForm({
 
   // Wersje planu — filtrowane po specjalności lub kierunku gdy brak specjalności
   const specChosen = specializationId !== ''  // '' = nie wybrany, 'none' lub ID = wybrany
-  const { data: versionsData } = useQuery({
+  const { data: versionsData, isLoading: isVersionsLoading } = useQuery({
     queryKey: ['versions-for-groups', specializationId, fieldOfStudyId, academicYear],
     queryFn: () => curriculumApi.getVersions(),
     enabled: specChosen,
@@ -201,7 +201,7 @@ function GenerateForm({
 
   // Wpisy siatki dla wybranej wersji → które semestry mają dane
   const selectedVersion = versionsData?.find((v) => v.studyMode === studyMode)
-  const { data: entriesData } = useQuery({
+  const { data: entriesData, isLoading: isEntriesLoading } = useQuery({
     queryKey: ['entries-for-groups', selectedVersion?.id],
     queryFn: () => curriculumApi.getEntries(selectedVersion!.id),
     enabled: !!selectedVersion?.id,
@@ -281,10 +281,11 @@ function GenerateForm({
 
           <div className="space-y-1.5 min-w-0">
             <Label>Tryb studiów</Label>
-            <Select value={studyMode || undefined} onValueChange={(v) => { setStudyMode(v); setSemester('') }} disabled={!specChosen || availableStudyModes.length === 0}>
+            <Select value={studyMode || undefined} onValueChange={(v) => { setStudyMode(v); setSemester('') }} disabled={!specChosen || (specChosen && isVersionsLoading) || (!isVersionsLoading && availableStudyModes.length === 0)}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={
                   !specChosen ? 'Najpierw wybierz specjalność'
+                  : isVersionsLoading ? 'Ładowanie...'
                   : availableStudyModes.length === 0 ? 'Brak planów studiów'
                   : 'Wybierz tryb'
                 } />
@@ -299,10 +300,11 @@ function GenerateForm({
 
           <div className="space-y-1.5 min-w-0">
             <Label>Semestr</Label>
-            <Select value={semester || undefined} onValueChange={setSemester} disabled={!studyMode || availableSemesters.length === 0}>
+            <Select value={semester || undefined} onValueChange={setSemester} disabled={!studyMode || isEntriesLoading || (!isEntriesLoading && availableSemesters.length === 0)}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={
                   !studyMode ? 'Najpierw wybierz tryb'
+                  : isEntriesLoading ? 'Ładowanie...'
                   : availableSemesters.length === 0 ? 'Brak semestrów w siatce'
                   : 'Wybierz semestr'
                 } />
