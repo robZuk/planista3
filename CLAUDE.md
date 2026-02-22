@@ -255,7 +255,8 @@ Sprawdzaj przy POST/PUT ScheduleEntry i ScheduleTemplate:
 ### Drag & drop — UI
 
 - Wolne sloty → podświetl **zielono**
-- Zajęte / poza oknem trybu / święto → podświetl **czerwono**
+- Zajęte / poza oknem trybu → podświetl **czerwono**
+- Święta (`PublicHoliday`) → cała kolumna dnia na **czerwono** z nazwą święta
 - Po upuszczeniu na nowy slot → walidacja na backendzie
 - Dialog: **"Przenieść tylko te zajęcia (data X) czy cały semestr?"**
   - Tylko ten termin → aktualizuj jeden `ScheduleEntry` (date, room, instructor)
