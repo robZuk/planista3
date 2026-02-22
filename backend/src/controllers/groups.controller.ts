@@ -4,13 +4,23 @@ import prisma from '../lib/prisma'
 import { isNotFoundError, isUniqueConstraintError } from '../lib/prismaErrors'
 import { generateGroupName } from '../lib/groupNaming'
 
-// Dopuszczalne typy sal dla każdego typu grupy
+// Dopuszczalne typy sal dla każdego typu grupy (używane przy sugerowaniu sali)
 const groupRoomTypeMap: Record<GroupType, RoomType[]> = {
   LECTURE:  [RoomType.LECTURE],
   EXERCISE: [RoomType.EXERCISE, RoomType.LECTURE],
   LAB:      [RoomType.LAB, RoomType.COMPUTER_LAB],
   PROJECT:  [RoomType.EXERCISE, RoomType.COMPUTER_LAB, RoomType.SEMINAR],
   SEMINAR:  [RoomType.SEMINAR, RoomType.EXERCISE],
+}
+
+// Typy sal używane do wyznaczenia liczby grup (tylko naturalne/pierwotne typy)
+// Nie uwzględniamy sal zastępczych (np. LECTURE dla EXERCISE), żeby nie zaniżać groupCount
+const primaryRoomTypeMap: Record<GroupType, RoomType[]> = {
+  LECTURE:  [RoomType.LECTURE],
+  EXERCISE: [RoomType.EXERCISE],
+  LAB:      [RoomType.LAB, RoomType.COMPUTER_LAB],
+  PROJECT:  [RoomType.EXERCISE, RoomType.COMPUTER_LAB],
+  SEMINAR:  [RoomType.SEMINAR],
 }
 
 // Znajdź najlepszą (najmniejszą pasującą) salę dla grupy
@@ -162,10 +172,11 @@ export const generate = async (req: Request, res: Response) => {
     for (const groupType of orderedTypes) {
       if (!classTypesInSemester.has(groupType)) continue
 
-      // Znajdź największą salę pasującego typu (do obliczenia liczby grup)
+      // Znajdź największą salę pierwotnego typu (do obliczenia liczby grup)
+      // Używamy primaryRoomTypeMap — bez sal zastępczych (np. LECTURE nie liczy dla EXERCISE)
       const largestRoom = await prisma.room.findFirst({
         where: {
-          type: { in: groupRoomTypeMap[groupType] },
+          type: { in: primaryRoomTypeMap[groupType] },
           OR: [
             { building: { facultyId: fieldOfStudy.facultyId } },
             { building: { facultyId: null } },
