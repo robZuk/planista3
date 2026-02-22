@@ -142,6 +142,11 @@ function GroupTree({
   )
 }
 
+const STUDY_MODE_LABELS: Record<string, string> = {
+  FULL_TIME: 'Stacjonarne',
+  PART_TIME: 'Niestacjonarne',
+}
+
 function GenerateForm({
   onProposal,
 }: {
@@ -155,43 +160,66 @@ function GenerateForm({
   }) => void
 }) {
   const { academicYear, semesterType } = useAcademicYearStore()
-  const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
+  const semesterTypeNumbers = SEMESTER_TYPE_NUMBERS[semesterType]
 
   const [facultyId, setFacultyId] = useState('')
   const [fieldOfStudyId, setFieldOfStudyId] = useState('')
   const [specializationId, setSpecializationId] = useState('')
   const [studyMode, setStudyMode] = useState('')
-  const [studyYear, setStudyYear] = useState('1')
-  const [semester, setSemester] = useState(String(availableSemesters[0]))
+  const [semester, setSemester] = useState('')
   const [totalStudents, setTotalStudents] = useState('60')
 
+  // Kaskada: wydział → kierunek → specjalność
   const { data: facultiesData } = useQuery({
     queryKey: ['faculties-for-groups'],
     queryFn: () => curriculumApi.getFaculties(),
   })
-
   const { data: fieldsData } = useQuery({
     queryKey: ['fields-for-groups', facultyId],
-    queryFn: () => curriculumApi.getFieldsOfStudy(facultyId || undefined),
+    queryFn: () => curriculumApi.getFieldsOfStudy(facultyId),
     enabled: !!facultyId,
   })
-
   const { data: specsData } = useQuery({
     queryKey: ['specs-for-groups', fieldOfStudyId],
     queryFn: () => curriculumApi.getSpecializations(fieldOfStudyId),
     enabled: !!fieldOfStudyId,
   })
 
+  // Wersje planu dla wybranej specjalności i roku akademickiego
+  const { data: versionsData } = useQuery({
+    queryKey: ['versions-for-groups', specializationId, academicYear],
+    queryFn: () => curriculumApi.getVersions(),
+    enabled: !!specializationId,
+    select: (res) =>
+      res.data.data.filter(
+        (v) => v.specialization?.id === specializationId && v.academicYear === academicYear
+      ),
+  })
+
+  // Wpisy siatki dla wybranej wersji → które semestry mają dane
+  const selectedVersion = versionsData?.find((v) => v.studyMode === studyMode)
+  const { data: entriesData } = useQuery({
+    queryKey: ['entries-for-groups', selectedVersion?.id],
+    queryFn: () => curriculumApi.getEntries(selectedVersion!.id),
+    enabled: !!selectedVersion?.id,
+    select: (res) => res.data.data.semesters.map((s) => s.semester),
+  })
+
   const faculties = facultiesData?.data.data ?? []
   const fields = fieldsData?.data.data ?? []
   const specs = specsData?.data.data ?? []
+  const availableStudyModes = [...new Set(versionsData?.map((v) => v.studyMode) ?? [])]
+  // Semestry: mają wpisy w siatce ORAZ pasują do zimowy/letni
+  const availableSemesters = (entriesData ?? []).filter((s) => semesterTypeNumbers.includes(s))
+  // Rok studiów wynikający z semestru
+  const studyYear = semester ? Math.ceil(parseInt(semester) / 2) : 1
 
   const generateMutation = useMutation({
     mutationFn: () =>
       groupsApi.generate({
         fieldOfStudyId,
         specializationId: specializationId || undefined,
-        studyYear: parseInt(studyYear),
+        studyYear,
         semester: parseInt(semester),
         academicYear,
         totalStudents: parseInt(totalStudents),
@@ -201,120 +229,93 @@ function GenerateForm({
         proposal: res.data.data.proposal,
         fieldOfStudyId,
         specializationId,
-        studyYear: parseInt(studyYear),
+        studyYear,
         semester: parseInt(semester),
         academicYear,
       })
     },
   })
 
+  const canGenerate = !!fieldOfStudyId && !!specializationId && !!studyMode && !!semester && !generateMutation.isPending
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Generuj grupy</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5 col-span-2">
-            <Label>Wydział</Label>
-            <Select value={facultyId || undefined} onValueChange={(v) => { setFacultyId(v); setFieldOfStudyId(''); setSpecializationId('') }}>
-              <SelectTrigger>
-                <SelectValue placeholder="Wybierz wydział" />
-              </SelectTrigger>
-              <SelectContent>
-                {faculties.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 col-span-2">
-            <Label>Kierunek</Label>
-            <Select
-              value={fieldOfStudyId || undefined}
-              onValueChange={(v) => { setFieldOfStudyId(v); setSpecializationId('') }}
-              disabled={!facultyId}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Wybierz kierunek" />
-              </SelectTrigger>
-              <SelectContent>
-                {fields.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 col-span-2">
-            <Label>Specjalność</Label>
-            <Select
-              value={specializationId || undefined}
-              onValueChange={setSpecializationId}
-              disabled={!fieldOfStudyId || specs.length === 0}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={!fieldOfStudyId ? 'Najpierw wybierz kierunek' : specs.length === 0 ? 'Brak specjalności' : 'Wybierz specjalność'} />
-              </SelectTrigger>
-              <SelectContent>
-                {specs.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.shortName} — {s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 col-span-2">
-            <Label>Tryb studiów</Label>
-            <Select value={studyMode || undefined} onValueChange={setStudyMode}>
-              <SelectTrigger>
-                <SelectValue placeholder="Wybierz tryb" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
-                <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Rok studiów</Label>
-            <Select value={studyYear} onValueChange={setStudyYear}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[1, 2, 3, 4].map((y) => (
-                  <SelectItem key={y} value={String(y)}>Rok {y}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Semestr</Label>
-            <Select value={semester} onValueChange={setSemester}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {availableSemesters.map((s) => (
-                  <SelectItem key={s} value={String(s)}>Semestr {s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 col-span-2">
-            <Label>Liczba studentów</Label>
-            <Input
-              type="number"
-              min={1}
-              value={totalStudents}
-              onChange={(e) => setTotalStudents(e.target.value)}
-            />
-          </div>
+      <CardContent className="space-y-3">
+        <div className="space-y-1.5">
+          <Label>Wydział</Label>
+          <Select value={facultyId || undefined} onValueChange={(v) => { setFacultyId(v); setFieldOfStudyId(''); setSpecializationId(''); setStudyMode(''); setSemester('') }}>
+            <SelectTrigger><SelectValue placeholder="Wybierz wydział" /></SelectTrigger>
+            <SelectContent>
+              {faculties.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
-        <Button
-          className="w-full"
-          disabled={!fieldOfStudyId || !specializationId || !studyMode || generateMutation.isPending}
-          onClick={() => generateMutation.mutate()}
-        >
+
+        <div className="space-y-1.5">
+          <Label>Kierunek</Label>
+          <Select value={fieldOfStudyId || undefined} onValueChange={(v) => { setFieldOfStudyId(v); setSpecializationId(''); setStudyMode(''); setSemester('') }} disabled={!facultyId}>
+            <SelectTrigger><SelectValue placeholder="Wybierz kierunek" /></SelectTrigger>
+            <SelectContent>
+              {fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Specjalność</Label>
+          <Select value={specializationId || undefined} onValueChange={(v) => { setSpecializationId(v); setStudyMode(''); setSemester('') }} disabled={!fieldOfStudyId}>
+            <SelectTrigger><SelectValue placeholder={!fieldOfStudyId ? 'Najpierw wybierz kierunek' : 'Wybierz specjalność'} /></SelectTrigger>
+            <SelectContent>
+              {specs.map((s) => <SelectItem key={s.id} value={s.id}>{s.shortName} — {s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Tryb studiów</Label>
+          <Select value={studyMode || undefined} onValueChange={(v) => { setStudyMode(v); setSemester('') }} disabled={!specializationId || availableStudyModes.length === 0}>
+            <SelectTrigger>
+              <SelectValue placeholder={
+                !specializationId ? 'Najpierw wybierz specjalność'
+                : availableStudyModes.length === 0 ? 'Brak planów studiów'
+                : 'Wybierz tryb'
+              } />
+            </SelectTrigger>
+            <SelectContent>
+              {availableStudyModes.map((m) => (
+                <SelectItem key={m} value={m}>{STUDY_MODE_LABELS[m] ?? m}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Semestr</Label>
+          <Select value={semester || undefined} onValueChange={setSemester} disabled={!studyMode || availableSemesters.length === 0}>
+            <SelectTrigger>
+              <SelectValue placeholder={
+                !studyMode ? 'Najpierw wybierz tryb'
+                : availableSemesters.length === 0 ? 'Brak semestrów w siatce'
+                : 'Wybierz semestr'
+              } />
+            </SelectTrigger>
+            <SelectContent>
+              {availableSemesters.map((s) => (
+                <SelectItem key={s} value={String(s)}>Semestr {s} (rok {Math.ceil(s / 2)})</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Liczba studentów</Label>
+          <Input type="number" min={1} value={totalStudents} onChange={(e) => setTotalStudents(e.target.value)} />
+        </div>
+
+        <Button className="w-full" disabled={!canGenerate} onClick={() => generateMutation.mutate()}>
           {generateMutation.isPending ? 'Generowanie...' : 'Generuj propozycję'}
         </Button>
         {generateMutation.isError && (
