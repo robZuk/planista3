@@ -3,7 +3,7 @@
 ## Kontekst projektu
 
 Buduję system zarządzania planem zajęć dla uczelni wyższej (Uniwersytet Morski w Gdyni).
-Aktualny etap: **Frontend**.
+Aktualny etap: **budowanie endpointów REST API**.
 
 ---
 
@@ -14,7 +14,7 @@ Aktualny etap: **Frontend**.
 | Backend     | Node.js + Express + TypeScript  |
 | Baza danych | PostgreSQL                      |
 | ORM         | Prisma                          |
-| Auth        | JWT ✅                          |
+| Auth        | JWT (następny etap)             |
 | Frontend    | React + TypeScript (później)    |
 
 ---
@@ -48,11 +48,10 @@ scheduler-app/
 - [x] Schemat Prisma — gotowy
 - [x] Migracja — wykonana
 - [x] Seed — dane z PDF w bazie
-- [x] Endpointy REST — gotowe
-- [x] Walidacja siatki godzin — gotowa
-- [x] Grupy studentów — gotowe
-- [x] Auth JWT — gotowe
-- [ ] Frontend — **aktualny cel**
+- [ ] Endpointy REST — **aktualny cel**
+- [ ] Walidacja siatki godzin
+- [ ] Auth JWT
+- [ ] Frontend
 
 ---
 
@@ -1190,4 +1189,290 @@ console.log('✅ Admin: admin@umg.edu.pl / Admin1234!')
 
 - Nie implementuj Google OAuth — to osobny krok po fronendzie
 - Nie wysyłaj maili przy rejestracji — zbędna złożoność na razie
-- Rejestrację może wykonać tylko ADMIN — nie ma publicznego /reg
+- Rejestrację może wykonać tylko ADMIN — nie ma publicznego /register
+
+---
+
+## Frontend — React + TypeScript + shadcn/ui
+
+### Stack
+
+| Technologia | Rola |
+|---|---|
+| React + TypeScript | Framework |
+| Vite | Bundler |
+| React Router v6 | Routing |
+| shadcn/ui + Tailwind | Komponenty i style |
+| TanStack Query | Fetching i cache danych z API |
+| Axios | Klient HTTP |
+| date-fns | Operacje na datach |
+| Zustand | Stan globalny (user, token) |
+
+### Instalacja
+
+```bash
+cd frontend
+npm install @tanstack/react-query axios date-fns zustand
+npx shadcn-ui@latest init
+npx shadcn-ui@latest add button input label card table badge tabs dialog select toast
+```
+
+### Struktura
+
+```
+frontend/src/
+├── api/              # funkcje wywołujące endpointy
+│   ├── auth.ts
+│   ├── curriculum.ts
+│   ├── groups.ts
+│   └── schedule.ts
+├── components/
+│   ├── ui/           # komponenty shadcn (auto-generowane)
+│   ├── layout/
+│   │   ├── AppShell.tsx      # sidebar + header + outlet
+│   │   ├── Sidebar.tsx       # nawigacja zależna od roli
+│   │   └── ProtectedRoute.tsx
+│   ├── curriculum/
+│   │   └── CurriculumTable.tsx  # tabela siatki jak w PDF
+│   ├── schedule/
+│   │   └── ScheduleCalendar.tsx # widok tygodniowy
+│   └── groups/
+│       └── GroupsManager.tsx
+├── pages/
+│   ├── LoginPage.tsx
+│   ├── DashboardPage.tsx
+│   ├── CurriculumPage.tsx
+│   ├── SchedulePage.tsx
+│   └── GroupsPage.tsx
+├── store/
+│   └── authStore.ts    # Zustand — user, token, role
+├── hooks/
+│   ├── useAuth.ts
+│   └── useCurriculum.ts
+└── types/
+    └── index.ts        # typy zgodne z Prisma modelami
+```
+
+### Store auth (Zustand)
+
+```typescript
+// src/store/authStore.ts
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+interface AuthStore {
+  accessToken: string | null
+  refreshToken: string | null
+  user: { id: string; name: string; email: string; role: string } | null
+  setAuth: (tokens: { accessToken: string; refreshToken: string }, user: any) => void
+  logout: () => void
+}
+
+export const useAuthStore = create<AuthStore>()(
+  persist(
+    (set) => ({
+      accessToken: null,
+      refreshToken: null,
+      user: null,
+      setAuth: (tokens, user) => set({ ...tokens, user }),
+      logout: () => set({ accessToken: null, refreshToken: null, user: null }),
+    }),
+    { name: 'auth' }
+  )
+)
+```
+
+### Axios z interceptorem
+
+```typescript
+// src/api/client.ts
+import axios from 'axios'
+import { useAuthStore } from '../store/authStore'
+
+const client = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000/api',
+})
+
+// Dodaj token do każdego requesta
+client.interceptors.request.use((config) => {
+  const token = useAuthStore.getState().accessToken
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+// Obsłuż wygaśnięty token
+client.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    if (error.response?.status === 401) {
+      useAuthStore.getState().logout()
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
+export default client
+```
+
+### Routing z ochroną ról
+
+```typescript
+// src/components/layout/ProtectedRoute.tsx
+import { Navigate } from 'react-router-dom'
+import { useAuthStore } from '../../store/authStore'
+
+interface Props {
+  children: React.ReactNode
+  roles?: string[]  // jeśli brak — każda rola
+}
+
+export const ProtectedRoute = ({ children, roles }: Props) => {
+  const { user } = useAuthStore()
+  if (!user) return <Navigate to="/login" replace />
+  if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
+```
+
+```typescript
+// src/App.tsx
+<Routes>
+  <Route path="/login" element={<LoginPage />} />
+  <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
+    <Route path="/dashboard" element={<DashboardPage />} />
+    <Route path="/curriculum" element={
+      <ProtectedRoute roles={['ADMIN', 'DEAN_OFFICE', 'INSTRUCTOR']}>
+        <CurriculumPage />
+      </ProtectedRoute>
+    } />
+    <Route path="/schedule" element={<SchedulePage />} />
+    <Route path="/groups" element={
+      <ProtectedRoute roles={['ADMIN']}>
+        <GroupsPage />
+      </ProtectedRoute>
+    } />
+  </Route>
+</Routes>
+```
+
+### Nawigacja zależna od roli
+
+```typescript
+// src/components/layout/Sidebar.tsx
+const NAV_ITEMS = [
+  { label: 'Dashboard',      path: '/dashboard', roles: ['ADMIN','INSTRUCTOR','STUDENT','DEAN_OFFICE'] },
+  { label: 'Siatka godzin',  path: '/curriculum', roles: ['ADMIN','DEAN_OFFICE','INSTRUCTOR'] },
+  { label: 'Plan zajęć',     path: '/schedule',   roles: ['ADMIN','INSTRUCTOR','STUDENT','DEAN_OFFICE'] },
+  { label: 'Grupy',          path: '/groups',     roles: ['ADMIN'] },
+]
+// Filtruj po roli zalogowanego użytkownika
+```
+
+---
+
+### Widoki — kolejność implementacji
+
+#### 1. LoginPage (`/login`)
+- Formularz: email + hasło
+- POST /api/auth/login → zapisz tokeny w Zustand
+- Przekieruj na /dashboard po sukcesie
+- Obsłuż błąd 401 (złe dane)
+
+#### 2. CurriculumPage (`/curriculum`) — priorytet
+Tabela siatki godzin identyczna z PDF:
+
+```
+| Lp | Przedmiot | W | C | L | P | S | ECTS | Zaliczenie |
+|----|-----------|---|---|---|---|---|------|------------|
+| 1  | Matematyka I | 30 | 0 | 45 | 0 | 0 | 6 | Egzamin |
+```
+
+- Filtrowanie: wybór kierunku → specjalności → semestru
+- Każdy wiersz to `CurriculumEntry` z API
+- ADMIN może edytować godziny inline (PUT /api/curriculum/entries/:id)
+- Walidacja sumy godzin na bieżąco
+
+#### 3. SchedulePage (`/schedule`) — najbardziej efektowny
+Widok tygodniowy (pon–pt, 7:00–20:00):
+
+- Sloty co 30 minut
+- Bloki zajęć kolorowane po typie (W=niebieski, C=zielony, L=pomarańczowy)
+- Klik na blok → szczegóły (sala, prowadzący, grupa)
+- ADMIN: drag & drop do przesunięcia zajęć
+- Filtr: wybór grupy lub prowadzącego
+
+#### 4. GroupsPage (`/groups`) — tylko ADMIN
+- Lista grup z hierarchią (drzewo)
+- Formularz generowania: kierunek + semestr + liczba studentów
+- Podgląd propozycji przed zatwierdzeniem
+- Edycja pojedynczej grupy (nazwa, rozmiar, sala)
+
+#### 5. DashboardPage (`/dashboard`)
+Karty ze statystykami zależnymi od roli:
+- ADMIN: liczba grup, procent zaplanowanych godzin, konflikty
+- INSTRUCTOR: moje zajęcia w tym tygodniu
+- STUDENT: plan swojej grupy na dziś/tydzień
+
+---
+
+### Typy TypeScript — zgodne z API
+
+```typescript
+// src/types/index.ts
+
+export type Role = 'ADMIN' | 'INSTRUCTOR' | 'STUDENT' | 'DEAN_OFFICE'
+export type StudyMode = 'FULL_TIME' | 'PART_TIME'
+export type ClassType = 'LECTURE' | 'EXERCISE' | 'LAB' | 'PROJECT' | 'SEMINAR'
+export type GroupType = 'LECTURE' | 'EXERCISE' | 'LAB' | 'PROJECT' | 'SEMINAR'
+export type RoomType = 'LECTURE' | 'EXERCISE' | 'LAB' | 'COMPUTER_LAB' | 'SEMINAR' | 'SPORTS'
+export type AssessmentType = 'EXAM' | 'CREDIT'
+export type DayOfWeek = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY'
+
+export interface CurriculumEntry {
+  id: string
+  semester: number
+  orderInSemester: number
+  hoursLecture: number
+  hoursExercise: number
+  hoursLab: number
+  hoursProject: number
+  hoursSeminar: number
+  ects: number
+  assessmentType: AssessmentType
+  subject: { id: string; name: string; code?: string }
+  instructor?: { id: string; firstName: string; lastName: string; title?: string }
+}
+
+export interface ScheduleEntry {
+  id: string
+  dayOfWeek: DayOfWeek
+  startTime: string
+  endTime: string
+  academicHours: number
+  classType: ClassType
+  academicYear: string
+  semester: number
+  room: { id: string; number: string; building: { name: string } }
+  instructor: { id: string; firstName: string; lastName: string }
+  studentGroup: { id: string; name: string }
+  curriculumEntry: { subject: { name: string } }
+}
+
+export interface StudentGroup {
+  id: string
+  name: string
+  type: GroupType
+  size: number
+  semester: number
+  academicYear: string
+  subGroups?: StudentGroup[]
+}
+```
+
+### Czego NIE rób na tym etapie
+
+- Nie implementuj drag & drop od razu — dodaj po podstawowym widoku
+- Nie styluj zbyt wcześnie — najpierw działająca logika, potem wygląd
+- Nie twórz osobnych stron dla CRUD sal/budynków/prowadzących — to niski priorytet
+- Nie implementuj Google OAuth
