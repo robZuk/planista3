@@ -212,7 +212,9 @@ export function CurriculumPage() {
             onValueChange={(v) => {
               setSelectedFacultyId(v)
               setSelectedFieldId('')
+              setSelectedStudyMode('')
               setSelectedVersionId('')
+              setFilterSemester('')
             }}
           >
             <SelectTrigger className="w-44">
@@ -234,7 +236,9 @@ export function CurriculumPage() {
             value={selectedFieldId || undefined}
             onValueChange={(v) => {
               setSelectedFieldId(v)
+              setSelectedStudyMode('')
               setSelectedVersionId('')
+              setFilterSemester('')
             }}
             disabled={!selectedFacultyId}
           >
@@ -255,7 +259,8 @@ export function CurriculumPage() {
           <label className="text-xs font-medium text-muted-foreground">Tryb studiów</label>
           <Select
             value={selectedStudyMode || undefined}
-            onValueChange={(v) => { setSelectedStudyMode(v); setSelectedVersionId('') }}
+            onValueChange={(v) => { setSelectedStudyMode(v); setSelectedVersionId(''); setFilterSemester('') }}
+            disabled={!selectedFieldId}
           >
             <SelectTrigger className="w-44">
               <SelectValue placeholder="Wszystkie" />
@@ -271,7 +276,8 @@ export function CurriculumPage() {
           <label className="text-xs font-medium text-muted-foreground">Plan studiów</label>
           <Select
             value={selectedVersionId || undefined}
-            onValueChange={setSelectedVersionId}
+            onValueChange={(v) => { setSelectedVersionId(v); setFilterSemester('') }}
+            disabled={!selectedFieldId}
           >
             <SelectTrigger className="w-56">
               <SelectValue placeholder="Wybierz plan" />
