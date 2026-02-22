@@ -3,7 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, X } from 'lucide-react'
 import { curriculumApi } from '@/api/curriculum'
 import { useAuthStore } from '@/store/authStore'
-import { Select } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import type { CurriculumEntry, SemesterEntries } from '@/types'
@@ -13,13 +19,7 @@ const ASSESSMENT_LABELS: Record<string, string> = {
   CREDIT: 'Zaliczenie',
 }
 
-function EditableHours({
-  value,
-  onSave,
-}: {
-  value: number
-  onSave: (val: number) => void
-}) {
+function EditableHours({ value, onSave }: { value: number; onSave: (val: number) => void }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(value))
 
@@ -53,10 +53,7 @@ function EditableHours({
   }
 
   return (
-    <span
-      className="cursor-pointer hover:text-blue-600 hover:underline"
-      onClick={() => setEditing(true)}
-    >
+    <span className="cursor-pointer hover:text-blue-600 hover:underline" onClick={() => setEditing(true)}>
       {value}
     </span>
   )
@@ -81,9 +78,9 @@ function SemesterTable({
         <h3 className="text-base font-semibold text-gray-800">Semestr {semester}</h3>
         <Badge variant="secondary">{totalEcts} ECTS</Badge>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
+      <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-gray-600">
+          <thead className="bg-muted text-muted-foreground">
             <tr>
               <th className="text-left px-3 py-2 font-medium w-8">Lp</th>
               <th className="text-left px-3 py-2 font-medium min-w-48">Przedmiot</th>
@@ -98,47 +95,41 @@ function SemesterTable({
               <th className="text-center px-2 py-2 font-medium hidden lg:table-cell">Zal.</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-border">
             {entries.map((entry, idx) => (
-              <tr key={entry.id} className="hover:bg-gray-50">
-                <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
-                <td className="px-3 py-2 font-medium text-gray-900">
+              <tr key={entry.id} className="hover:bg-muted/50">
+                <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
+                <td className="px-3 py-2 font-medium">
                   {entry.subject.name}
                   {entry.subject.code && (
-                    <span className="ml-1 text-xs text-gray-400">[{entry.subject.code}]</span>
+                    <span className="ml-1 text-xs text-muted-foreground">[{entry.subject.code}]</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-gray-500 hidden md:table-cell text-xs">
+                <td className="px-3 py-2 text-muted-foreground hidden md:table-cell text-xs">
                   {entry.instructor
                     ? `${entry.instructor.title ?? ''} ${entry.instructor.lastName}`.trim()
                     : '—'}
                 </td>
                 {(['hoursLecture', 'hoursExercise', 'hoursLab', 'hoursProject', 'hoursSeminar'] as const).map(
                   (field) => (
-                    <td key={field} className="px-2 py-2 text-center text-gray-700">
+                    <td key={field} className="px-2 py-2 text-center">
                       {canEdit ? (
-                        <EditableHours
-                          value={entry[field]}
-                          onSave={(val) => onUpdateEntry(entry.id, field, val)}
-                        />
+                        <EditableHours value={entry[field]} onSave={(val) => onUpdateEntry(entry.id, field, val)} />
                       ) : (
                         entry[field]
                       )}
                     </td>
                   )
                 )}
-                <td className="px-2 py-2 text-center font-medium text-gray-900">{entry.totalHours}</td>
+                <td className="px-2 py-2 text-center font-medium">{entry.totalHours}</td>
                 <td className="px-2 py-2 text-center">
                   {canEdit ? (
-                    <EditableHours
-                      value={entry.ects}
-                      onSave={(val) => onUpdateEntry(entry.id, 'ects', val)}
-                    />
+                    <EditableHours value={entry.ects} onSave={(val) => onUpdateEntry(entry.id, 'ects', val)} />
                   ) : (
                     entry.ects
                   )}
                 </td>
-                <td className="px-2 py-2 text-center text-xs text-gray-500 hidden lg:table-cell">
+                <td className="px-2 py-2 text-center text-xs text-muted-foreground hidden lg:table-cell">
                   {ASSESSMENT_LABELS[entry.assessmentType]}
                 </td>
               </tr>
@@ -185,19 +176,14 @@ export function CurriculumPage() {
   const { data: entriesData, isLoading: entriesLoading } = useQuery({
     queryKey: ['curriculum-entries', selectedVersionId, filterSemester],
     queryFn: () =>
-      curriculumApi.getEntries(
-        selectedVersionId,
-        filterSemester ? parseInt(filterSemester) : undefined
-      ),
+      curriculumApi.getEntries(selectedVersionId, filterSemester ? parseInt(filterSemester) : undefined),
     enabled: !!selectedVersionId,
   })
 
   const updateMutation = useMutation({
     mutationFn: ({ id, field, value }: { id: string; field: string; value: number }) =>
       curriculumApi.updateEntry(id, { [field]: value }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['curriculum-entries'] })
-    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['curriculum-entries'] }),
   })
 
   const faculties = facultiesData?.data.data ?? []
@@ -212,109 +198,119 @@ export function CurriculumPage() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Siatka godzin</h2>
-        <p className="text-gray-500 text-sm">Plan studiów wg semestrów</p>
+        <h2 className="text-2xl font-bold">Siatka godzin</h2>
+        <p className="text-muted-foreground text-sm">Plan studiów wg semestrów</p>
       </div>
 
       {/* Filtry */}
-      <div className="flex flex-wrap gap-3 mb-6 p-4 bg-white rounded-lg border border-gray-200">
+      <div className="flex flex-wrap gap-3 mb-6 p-4 bg-card rounded-lg border border-border">
         <div className="flex flex-col gap-1 min-w-40">
-          <label className="text-xs font-medium text-gray-600">Wydział</label>
+          <label className="text-xs font-medium text-muted-foreground">Wydział</label>
           <Select
-            value={selectedFacultyId}
-            onChange={(e) => {
-              setSelectedFacultyId(e.target.value)
+            value={selectedFacultyId || undefined}
+            onValueChange={(v) => {
+              setSelectedFacultyId(v)
               setSelectedFieldId('')
               setSelectedVersionId('')
             }}
           >
-            <option value="">Wybierz wydział</option>
-            {faculties.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.shortName}
-              </option>
-            ))}
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Wybierz wydział" />
+            </SelectTrigger>
+            <SelectContent>
+              {faculties.map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.shortName} — {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </div>
 
         <div className="flex flex-col gap-1 min-w-48">
-          <label className="text-xs font-medium text-gray-600">Kierunek</label>
+          <label className="text-xs font-medium text-muted-foreground">Kierunek</label>
           <Select
-            value={selectedFieldId}
-            onChange={(e) => {
-              setSelectedFieldId(e.target.value)
+            value={selectedFieldId || undefined}
+            onValueChange={(v) => {
+              setSelectedFieldId(v)
               setSelectedVersionId('')
             }}
             disabled={!selectedFacultyId}
           >
-            <option value="">Wybierz kierunek</option>
-            {fields.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Wybierz kierunek" />
+            </SelectTrigger>
+            <SelectContent>
+              {fields.map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </div>
 
         <div className="flex flex-col gap-1 min-w-48">
-          <label className="text-xs font-medium text-gray-600">Specjalność / wersja</label>
+          <label className="text-xs font-medium text-muted-foreground">Plan studiów</label>
           <Select
-            value={selectedVersionId}
-            onChange={(e) => setSelectedVersionId(e.target.value)}
+            value={selectedVersionId || undefined}
+            onValueChange={setSelectedVersionId}
             disabled={!selectedFieldId}
           >
-            <option value="">Wybierz plan</option>
-            {specs.map((spec) => {
-              const specVersions = versions.filter(
-                (v) => v.specialization?.id === spec.id || spec.curriculumVersions?.some((cv) => cv.id === v.id)
-              )
-              return specVersions.length > 0
-                ? specVersions.map((v) => (
-                    <option key={v.id} value={v.id}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Wybierz plan" />
+            </SelectTrigger>
+            <SelectContent>
+              {specs.flatMap((spec) =>
+                versions
+                  .filter((v) => v.specialization?.id === spec.id)
+                  .map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
                       {spec.shortName} · {v.academicYear}
-                    </option>
+                    </SelectItem>
                   ))
-                : null
-            })}
-            {/* fallback — wszystkie wersje */}
-            {specs.length === 0 &&
-              versions.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.specialization?.name ?? '—'} · {v.academicYear}
-                </option>
-              ))}
+              )}
+              {specs.length === 0 &&
+                versions.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.specialization?.name ?? '—'} · {v.academicYear}
+                  </SelectItem>
+                ))}
+            </SelectContent>
           </Select>
         </div>
 
         {selectedVersionId && (
-          <div className="flex flex-col gap-1 min-w-32">
-            <label className="text-xs font-medium text-gray-600">Semestr</label>
-            <Select value={filterSemester} onChange={(e) => setFilterSemester(e.target.value)}>
-              <option value="">Wszystkie</option>
-              {Array.from({ length: totalSemesters }, (_, i) => (
-                <option key={i + 1} value={String(i + 1)}>
-                  Semestr {i + 1}
-                </option>
-              ))}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground">Semestr</label>
+            <Select value={filterSemester || undefined} onValueChange={setFilterSemester}>
+              <SelectTrigger className="w-36">
+                <SelectValue placeholder="Wszystkie" />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: totalSemesters }, (_, i) => (
+                  <SelectItem key={i + 1} value={String(i + 1)}>
+                    Semestr {i + 1}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
         )}
       </div>
 
-      {/* Treść */}
       {!selectedVersionId && (
-        <div className="text-center py-16 text-gray-400">
-          <BookIcon />
-          <p className="mt-2">Wybierz plan studiów, aby wyświetlić siatkę godzin</p>
+        <div className="text-center py-16 text-muted-foreground">
+          <p>Wybierz plan studiów, aby wyświetlić siatkę godzin</p>
         </div>
       )}
 
       {selectedVersionId && entriesLoading && (
-        <div className="text-center py-16 text-gray-400">Ładowanie...</div>
+        <div className="text-center py-16 text-muted-foreground">Ładowanie...</div>
       )}
 
       {selectedVersionId && !entriesLoading && semesters.length === 0 && (
-        <div className="text-center py-16 text-gray-400">Brak wpisów dla wybranego planu</div>
+        <div className="text-center py-16 text-muted-foreground">Brak wpisów dla wybranego planu</div>
       )}
 
       {semesters.map((sem) => (
@@ -328,13 +324,5 @@ export function CurriculumPage() {
         />
       ))}
     </div>
-  )
-}
-
-function BookIcon() {
-  return (
-    <svg className="mx-auto w-12 h-12 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .513v14.25A8.987 8.987 0 0018 18a8.966 8.966 0 00-6 2.292m0-14.25v14.25" />
-    </svg>
   )
 }
