@@ -1,7 +1,7 @@
 import { GroupType } from '@prisma/client'
 
 const EXERCISE_LABELS = ['A', 'B', 'C', 'D', 'E']
-const LAB_SUFFIXES = ['1', '2', '3', '4']
+const LAB_SUFFIXES = ['1', '2', '3', '4', '5', '6', '7', '8']
 
 export const generateGroupName = (
   fieldShortName: string,  // np. "EDST"
