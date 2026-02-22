@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, X } from 'lucide-react'
 import { curriculumApi } from '@/api/curriculum'
 import { useAuthStore } from '@/store/authStore'
+import { useAcademicYearStore } from '@/store/academicYearStore'
 import {
   Select,
   SelectContent,
@@ -145,6 +146,7 @@ export function CurriculumPage() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const canEdit = user?.role === 'ADMIN'
+  const { academicYear } = useAcademicYearStore()
 
   const [selectedFacultyId, setSelectedFacultyId] = useState('')
   const [selectedFieldId, setSelectedFieldId] = useState('')
@@ -286,7 +288,8 @@ export function CurriculumPage() {
               {(specs.length > 0
                 ? versions.filter((v) => specs.some((s) => s.id === v.specialization?.id))
                 : versions
-              ).filter((v) => !selectedStudyMode || v.studyMode === selectedStudyMode)
+              ).filter((v) => v.academicYear === academicYear)
+               .filter((v) => !selectedStudyMode || v.studyMode === selectedStudyMode)
                .map((v) => (
                 <SelectItem key={v.id} value={v.id}>
                   {v.specialization?.shortName ?? v.specialization?.name ?? '—'} · {v.academicYear}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { scheduleApi } from '@/api/schedule'
+import { useAcademicYearStore, SEMESTER_TYPE_NUMBERS } from '@/store/academicYearStore'
 import {
   Select,
   SelectContent,
@@ -112,9 +113,11 @@ function DetailPanel({ entry, onClose }: { entry: ScheduleEntry; onClose: () => 
 }
 
 export function SchedulePage() {
+  const { academicYear, semesterType } = useAcademicYearStore()
   const [semester, setSemester] = useState<string>('')
-  const [academicYear, setAcademicYear] = useState('2024/2025')
   const [selectedEntry, setSelectedEntry] = useState<ScheduleEntry | null>(null)
+
+  const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
 
   const { data, isLoading } = useQuery({
     queryKey: ['schedule', semester, academicYear],
@@ -141,28 +144,15 @@ export function SchedulePage() {
 
       <div className="flex flex-wrap gap-3 mb-6 p-4 bg-card rounded-lg border border-border">
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">Rok akademicki</label>
-          <Select value={academicYear} onValueChange={setAcademicYear}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="2024/2025">2024/2025</SelectItem>
-              <SelectItem value="2023/2024">2023/2024</SelectItem>
-              <SelectItem value="2022/2023">2022/2023</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-muted-foreground">Semestr</label>
           <Select value={semester || undefined} onValueChange={setSemester}>
             <SelectTrigger className="w-36">
               <SelectValue placeholder="Wszystkie" />
             </SelectTrigger>
             <SelectContent>
-              {Array.from({ length: 7 }, (_, i) => (
-                <SelectItem key={i + 1} value={String(i + 1)}>
-                  Semestr {i + 1}
+              {availableSemesters.map((s) => (
+                <SelectItem key={s} value={String(s)}>
+                  Semestr {s}
                 </SelectItem>
               ))}
             </SelectContent>

@@ -4,6 +4,7 @@ import { ChevronRight, Users, Pencil, Trash2 } from 'lucide-react'
 import { groupsApi } from '@/api/groups'
 import { curriculumApi } from '@/api/curriculum'
 import { useAuthStore } from '@/store/authStore'
+import { useAcademicYearStore, SEMESTER_TYPE_NUMBERS } from '@/store/academicYearStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -334,6 +335,8 @@ export function GroupsPage() {
   const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const canEdit = user?.role === 'ADMIN'
+  const { academicYear, semesterType } = useAcademicYearStore()
+  const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
 
   const [filterSemester, setFilterSemester] = useState<string>('')
   const [proposal, setProposal] = useState<GroupProposalItem[] | null>(null)
@@ -356,8 +359,8 @@ export function GroupsPage() {
   })
 
   const { data: groupsData, isLoading } = useQuery({
-    queryKey: ['groups', filterSemester],
-    queryFn: () => groupsApi.getAll({ semester: filterSemester ? parseInt(filterSemester) : undefined }),
+    queryKey: ['groups', filterSemester, academicYear],
+    queryFn: () => groupsApi.getAll({ semester: filterSemester ? parseInt(filterSemester) : undefined, academicYear }),
   })
 
   const groups = groupsData?.data.data ?? []
@@ -400,9 +403,9 @@ export function GroupsPage() {
                 <SelectValue placeholder="Wszystkie semestry" />
               </SelectTrigger>
               <SelectContent>
-                {Array.from({ length: 7 }, (_, i) => (
-                  <SelectItem key={i + 1} value={String(i + 1)}>
-                    Semestr {i + 1}
+                {availableSemesters.map((s) => (
+                  <SelectItem key={s} value={String(s)}>
+                    Semestr {s}
                   </SelectItem>
                 ))}
               </SelectContent>

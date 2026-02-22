@@ -1,7 +1,9 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, BookOpen, CalendarDays, Users, GraduationCap, Building2, School, LogOut, Sun, Moon } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
+import { useAcademicYearStore, ACADEMIC_YEARS, SEMESTER_TYPE_LABELS } from '@/store/academicYearStore'
 import { useTheme } from '@/hooks/useTheme'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { Role } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -60,6 +62,7 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const { user, logout } = useAuthStore()
   const { theme, toggle } = useTheme()
+  const { academicYear, setAcademicYear, semesterType, setSemesterType } = useAcademicYearStore()
 
   const visibleItems = NAV_ITEMS.filter(
     (item) => user && item.roles.includes(user.role)
@@ -79,6 +82,31 @@ export function Sidebar() {
         >
           {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
         </button>
+      </div>
+
+      <div className="px-3 py-2 border-b border-border">
+        <p className="text-xs font-medium text-muted-foreground mb-1.5">Kontekst</p>
+        <div className="flex gap-1.5">
+          <Select value={academicYear} onValueChange={setAcademicYear}>
+            <SelectTrigger className="h-8 text-xs flex-1 min-w-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ACADEMIC_YEARS.map((y) => (
+                <SelectItem key={y} value={y}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={semesterType} onValueChange={setSemesterType}>
+            <SelectTrigger className="h-8 text-xs w-20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="WINTER">{SEMESTER_TYPE_LABELS.WINTER}</SelectItem>
+              <SelectItem value="SUMMER">{SEMESTER_TYPE_LABELS.SUMMER}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
