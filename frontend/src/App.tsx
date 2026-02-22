@@ -8,6 +8,13 @@ import { CurriculumPage } from '@/pages/CurriculumPage'
 import { SchedulePage } from '@/pages/SchedulePage'
 import { GroupsPage } from '@/pages/GroupsPage'
 
+// Inicjalizuj motyw przed pierwszym renderem — zapobiega miganiu
+const stored = localStorage.getItem('theme')
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+if (stored === 'dark' || (!stored && prefersDark)) {
+  document.documentElement.classList.add('dark')
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
