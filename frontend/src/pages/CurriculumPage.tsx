@@ -148,6 +148,7 @@ export function CurriculumPage() {
 
   const [selectedFacultyId, setSelectedFacultyId] = useState('')
   const [selectedFieldId, setSelectedFieldId] = useState('')
+  const [selectedStudyMode, setSelectedStudyMode] = useState('')
   const [selectedVersionId, setSelectedVersionId] = useState('')
   const [filterSemester, setFilterSemester] = useState('')
 
@@ -250,6 +251,22 @@ export function CurriculumPage() {
           </Select>
         </div>
 
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">Tryb studiów</label>
+          <Select
+            value={selectedStudyMode || undefined}
+            onValueChange={(v) => { setSelectedStudyMode(v); setSelectedVersionId('') }}
+          >
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Wszystkie" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
+              <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="flex flex-col gap-1 min-w-48">
           <label className="text-xs font-medium text-muted-foreground">Plan studiów</label>
           <Select
@@ -263,7 +280,8 @@ export function CurriculumPage() {
               {(specs.length > 0
                 ? versions.filter((v) => specs.some((s) => s.id === v.specialization?.id))
                 : versions
-              ).map((v) => (
+              ).filter((v) => !selectedStudyMode || v.studyMode === selectedStudyMode)
+               .map((v) => (
                 <SelectItem key={v.id} value={v.id}>
                   {v.specialization?.shortName ?? v.specialization?.name ?? '—'} · {v.academicYear}
                 </SelectItem>

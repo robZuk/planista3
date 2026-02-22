@@ -106,7 +106,6 @@ export interface GroupProposalItem {
   type: GroupType
   size: number
   parentName: string | null
-  suggestedRoom: { id: string; number: string; capacity: number; building: { name: string } } | null
 }
 
 export interface Room {

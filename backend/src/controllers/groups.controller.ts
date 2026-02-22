@@ -4,15 +4,6 @@ import prisma from '../lib/prisma'
 import { isNotFoundError, isUniqueConstraintError } from '../lib/prismaErrors'
 import { generateGroupName } from '../lib/groupNaming'
 
-// Dopuszczalne typy sal dla każdego typu grupy (używane przy sugerowaniu sali)
-const groupRoomTypeMap: Record<GroupType, RoomType[]> = {
-  LECTURE:  [RoomType.LECTURE],
-  EXERCISE: [RoomType.EXERCISE, RoomType.LECTURE],
-  LAB:      [RoomType.LAB, RoomType.COMPUTER_LAB],
-  PROJECT:  [RoomType.EXERCISE, RoomType.COMPUTER_LAB, RoomType.SEMINAR],
-  SEMINAR:  [RoomType.SEMINAR, RoomType.EXERCISE],
-}
-
 // Typy sal używane do wyznaczenia liczby grup (tylko naturalne/pierwotne typy)
 // Nie uwzględniamy sal zastępczych (np. LECTURE dla EXERCISE), żeby nie zaniżać groupCount
 const primaryRoomTypeMap: Record<GroupType, RoomType[]> = {
@@ -23,27 +14,6 @@ const primaryRoomTypeMap: Record<GroupType, RoomType[]> = {
   SEMINAR:  [RoomType.SEMINAR],
 }
 
-// Znajdź najlepszą (najmniejszą pasującą) salę dla grupy
-async function findBestRoom(groupType: GroupType, minCapacity: number, facultyId: string | null) {
-  const roomTypes = groupRoomTypeMap[groupType]
-
-  // Priorytet: sale w budynkach wydziału
-  if (facultyId) {
-    const room = await prisma.room.findFirst({
-      where: { type: { in: roomTypes }, capacity: { gte: minCapacity }, building: { facultyId } },
-      include: { building: { select: { name: true } } },
-      orderBy: { capacity: 'asc' },
-    })
-    if (room) return room
-  }
-
-  // Fallback: budynki ogólnouczelniane (facultyId = null)
-  return prisma.room.findFirst({
-    where: { type: { in: roomTypes }, capacity: { gte: minCapacity }, building: { facultyId: null } },
-    include: { building: { select: { name: true } } },
-    orderBy: { capacity: 'asc' },
-  })
-}
 
 // GET /api/groups
 export const getAll = async (req: Request, res: Response) => {
@@ -56,7 +26,7 @@ export const getAll = async (req: Request, res: Response) => {
         ...(academicYear ? { academicYear: String(academicYear) } : {}),
       },
       include: {
-        subGroups: true,
+        subGroups: { include: { subGroups: true } },
         preferredRoom: { include: { building: { select: { name: true } } } },
       },
       orderBy: [{ semester: 'asc' }, { type: 'asc' }, { name: 'asc' }],
@@ -154,8 +124,6 @@ export const generate = async (req: Request, res: Response) => {
       type: GroupType
       size: number
       parentName: string | null
-      suggestedRoom: { id: string; number: string; capacity: number; building: { name: string } } | null
-      warning?: string
     }
 
     const proposal: ProposalEntry[] = []
@@ -192,25 +160,19 @@ export const generate = async (req: Request, res: Response) => {
       groupCounts[groupType] = groupCount
 
       if (groupType === GroupType.LECTURE) {
-        const room = await findBestRoom(GroupType.LECTURE, totalStudents, fieldOfStudy.facultyId)
         proposal.push({
           name: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.LECTURE, 0),
           type: GroupType.LECTURE,
           size: totalStudents,
           parentName: null,
-          suggestedRoom: room ? { id: room.id, number: room.number, capacity: room.capacity, building: room.building } : null,
-          ...(!room ? { warning: 'Brak sali wykładowej o wystarczającej pojemności' } : {}),
         })
       } else if (groupType === GroupType.EXERCISE) {
         for (let i = 0; i < groupCount; i++) {
-          const room = await findBestRoom(GroupType.EXERCISE, groupSize, fieldOfStudy.facultyId)
           proposal.push({
             name: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.EXERCISE, i),
             type: GroupType.EXERCISE,
             size: groupSize,
             parentName: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.LECTURE, 0),
-            suggestedRoom: room ? { id: room.id, number: room.number, capacity: room.capacity, building: room.building } : null,
-            ...(!room ? { warning: 'Brak sali ćwiczeniowej o wystarczającej pojemności' } : {}),
           })
         }
       } else if (groupType === GroupType.LAB) {
@@ -221,30 +183,23 @@ export const generate = async (req: Request, res: Response) => {
         for (let exerciseIdx = 0; exerciseIdx < exerciseCount; exerciseIdx++) {
           for (let labIdx = 0; labIdx < labPerExercise; labIdx++) {
             const labSize = Math.ceil(exerciseGroupSize / labPerExercise)
-            const room = await findBestRoom(GroupType.LAB, labSize, fieldOfStudy.facultyId)
             proposal.push({
               name: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.LAB, labIdx, exerciseIdx),
               type: GroupType.LAB,
               size: labSize,
               parentName: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.EXERCISE, exerciseIdx),
-              suggestedRoom: room ? { id: room.id, number: room.number, capacity: room.capacity, building: room.building } : null,
-              ...(!room ? { warning: 'Brak sali laboratoryjnej o wystarczającej pojemności' } : {}),
             })
           }
         }
-        // Przelicz rzeczywistą łączną liczbę lab grup
         groupCounts[GroupType.LAB] = exerciseCount * labPerExercise
       } else {
         // PROJECT i SEMINAR — dzieci grupy wykładowej
         for (let i = 0; i < groupCount; i++) {
-          const room = await findBestRoom(groupType, groupSize, fieldOfStudy.facultyId)
           proposal.push({
             name: generateGroupName(fieldOfStudy.shortName, studyYear, groupType, i),
             type: groupType,
             size: groupSize,
             parentName: generateGroupName(fieldOfStudy.shortName, studyYear, GroupType.LECTURE, 0),
-            suggestedRoom: room ? { id: room.id, number: room.number, capacity: room.capacity, building: room.building } : null,
-            ...(!room ? { warning: 'Brak sali o wystarczającej pojemności' } : {}),
           })
         }
       }
@@ -308,7 +263,7 @@ export const confirm = async (req: Request, res: Response) => {
             semester,
             academicYear,
             parentGroupId: parentId ?? null,
-            preferredRoomId: group.preferredRoomId ?? null,
+            preferredRoomId: null,
           },
         })
 

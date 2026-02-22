@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Users } from 'lucide-react'
+import { ChevronRight, Users, Pencil, Trash2 } from 'lucide-react'
 import { groupsApi } from '@/api/groups'
 import { curriculumApi } from '@/api/curriculum'
+import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,6 +14,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { StudentGroup, GroupProposalItem, GroupType } from '@/types'
@@ -33,13 +40,66 @@ const TYPE_COLORS: Record<GroupType, string> = {
   SEMINAR:  'bg-pink-500/15   text-pink-700   dark:bg-pink-500/20   dark:text-pink-300',
 }
 
-function GroupTree({ group }: { group: StudentGroup }) {
+function EditGroupDialog({
+  group,
+  onClose,
+  onSave,
+}: {
+  group: StudentGroup
+  onClose: () => void
+  onSave: (name: string, size: number) => void
+}) {
+  const [name, setName] = useState(group.name)
+  const [size, setSize] = useState(String(group.size))
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edytuj grupę</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 pt-2">
+          <div className="space-y-1.5">
+            <Label>Nazwa grupy</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Liczba studentów</Label>
+            <Input type="number" min={1} value={size} onChange={(e) => setSize(e.target.value)} />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button
+              className="flex-1"
+              disabled={!name.trim() || !size}
+              onClick={() => onSave(name.trim(), parseInt(size))}
+            >
+              Zapisz
+            </Button>
+            <Button variant="outline" onClick={onClose}>Anuluj</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function GroupTree({
+  group,
+  canEdit,
+  onEdit,
+  onDelete,
+}: {
+  group: StudentGroup
+  canEdit: boolean
+  onEdit: (g: StudentGroup) => void
+  onDelete: (g: StudentGroup) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const hasChildren = (group.subGroups?.length ?? 0) > 0
 
   return (
     <div>
-      <div className="flex items-center gap-2 py-1.5 px-2 hover:bg-muted/50 rounded-md cursor-pointer">
+      <div className="flex items-center gap-2 py-1.5 px-2 hover:bg-muted/50 rounded-md cursor-pointer group">
         <button
           onClick={() => setExpanded(!expanded)}
           className="w-4 h-4 flex items-center justify-center text-muted-foreground"
@@ -54,10 +114,27 @@ function GroupTree({ group }: { group: StudentGroup }) {
           {TYPE_LABELS[group.type]}
         </span>
         <span className="text-xs text-muted-foreground ml-auto">{group.size} os. · sem. {group.semester}</span>
+        {canEdit && (
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onEdit(group)}>
+              <Pencil size={11} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-destructive hover:text-destructive"
+              onClick={() => onDelete(group)}
+            >
+              <Trash2 size={11} />
+            </Button>
+          </div>
+        )}
       </div>
       {expanded && hasChildren && (
         <div className="ml-5 border-l border-border pl-2">
-          {group.subGroups?.map((sub) => <GroupTree key={sub.id} group={sub} />)}
+          {group.subGroups?.map((sub) => (
+            <GroupTree key={sub.id} group={sub} canEdit={canEdit} onEdit={onEdit} onDelete={onDelete} />
+          ))}
         </div>
       )}
     </div>
@@ -229,12 +306,7 @@ function ProposalPreview({
               <span className={`text-xs px-1.5 py-0.5 rounded-full ${TYPE_COLORS[g.type]}`}>
                 {TYPE_LABELS[g.type]}
               </span>
-              <span className="text-xs text-muted-foreground">{g.size} os.</span>
-              {g.suggestedRoom && (
-                <span className="text-xs text-muted-foreground ml-auto">
-                  sala {g.suggestedRoom.number}
-                </span>
-              )}
+              <span className="text-xs text-muted-foreground ml-auto">{g.size} os.</span>
             </div>
           ))}
         </div>
@@ -259,12 +331,29 @@ function ProposalPreview({
 }
 
 export function GroupsPage() {
+  const user = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
+  const canEdit = user?.role === 'ADMIN'
+
   const [filterSemester, setFilterSemester] = useState<string>('')
   const [proposal, setProposal] = useState<GroupProposalItem[] | null>(null)
   const [proposalMeta, setProposalMeta] = useState<{
     fieldOfStudyId: string; studyYear: number; semester: number; academicYear: string
   } | null>(null)
+  const [editingGroup, setEditingGroup] = useState<StudentGroup | null>(null)
+
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['groups'] })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, name, size }: { id: string; name: string; size: number }) =>
+      groupsApi.update(id, { name, size }),
+    onSuccess: () => { invalidate(); setEditingGroup(null) },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => groupsApi.remove(id),
+    onSuccess: invalidate,
+  })
 
   const { data: groupsData, isLoading } = useQuery({
     queryKey: ['groups', filterSemester],
@@ -334,10 +423,27 @@ export function GroupsPage() {
             <Card>
               <CardContent className="pt-2">
                 {topLevelGroups.map((g) => (
-                  <GroupTree key={g.id} group={g} />
+                  <GroupTree
+                    key={g.id}
+                    group={g}
+                    canEdit={canEdit}
+                    onEdit={setEditingGroup}
+                    onDelete={(g) => {
+                      if (confirm(`Usunąć grupę „${g.name}"?`)) deleteMutation.mutate(g.id)
+                    }}
+                  />
                 ))}
               </CardContent>
             </Card>
+          )}
+
+          {editingGroup && (
+            <EditGroupDialog
+              key={editingGroup.id}
+              group={editingGroup}
+              onClose={() => setEditingGroup(null)}
+              onSave={(name, size) => updateMutation.mutate({ id: editingGroup.id, name, size })}
+            />
           )}
         </div>
       </div>
