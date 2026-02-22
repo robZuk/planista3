@@ -185,15 +185,18 @@ function GenerateForm({
     enabled: !!fieldOfStudyId,
   })
 
-  // Wersje planu dla wybranej specjalności i roku akademickiego
+  // Wersje planu — filtrowane po specjalności lub kierunku gdy brak specjalności
+  const specChosen = specializationId !== ''  // '' = nie wybrany, 'none' lub ID = wybrany
   const { data: versionsData } = useQuery({
-    queryKey: ['versions-for-groups', specializationId, academicYear],
+    queryKey: ['versions-for-groups', specializationId, fieldOfStudyId, academicYear],
     queryFn: () => curriculumApi.getVersions(),
-    enabled: !!specializationId,
+    enabled: specChosen,
     select: (res) =>
-      res.data.data.filter(
-        (v) => v.specialization?.id === specializationId && v.academicYear === academicYear
-      ),
+      res.data.data.filter((v) => {
+        if (!v.academicYear || v.academicYear !== academicYear) return false
+        if (specializationId === 'none') return v.specialization?.fieldOfStudyId === fieldOfStudyId
+        return v.specialization?.id === specializationId
+      }),
   })
 
   // Wpisy siatki dla wybranej wersji → które semestry mają dane
@@ -218,7 +221,7 @@ function GenerateForm({
     mutationFn: () =>
       groupsApi.generate({
         fieldOfStudyId,
-        specializationId: specializationId || undefined,
+        specializationId: specializationId === 'none' ? undefined : specializationId || undefined,
         studyYear,
         semester: parseInt(semester),
         academicYear,
@@ -228,7 +231,7 @@ function GenerateForm({
       onProposal({
         proposal: res.data.data.proposal,
         fieldOfStudyId,
-        specializationId,
+        specializationId: specializationId === 'none' ? '' : specializationId,
         studyYear,
         semester: parseInt(semester),
         academicYear,
@@ -236,18 +239,19 @@ function GenerateForm({
     },
   })
 
-  const canGenerate = !!fieldOfStudyId && !!specializationId && !!studyMode && !!semester && !generateMutation.isPending
+  const canGenerate = !!fieldOfStudyId && specChosen && !!studyMode && !!semester && !generateMutation.isPending
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Generuj grupy</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
         <div className="space-y-1.5">
           <Label>Wydział</Label>
           <Select value={facultyId || undefined} onValueChange={(v) => { setFacultyId(v); setFieldOfStudyId(''); setSpecializationId(''); setStudyMode(''); setSemester('') }}>
-            <SelectTrigger><SelectValue placeholder="Wybierz wydział" /></SelectTrigger>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Wybierz wydział" /></SelectTrigger>
             <SelectContent>
               {faculties.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
             </SelectContent>
@@ -257,7 +261,7 @@ function GenerateForm({
         <div className="space-y-1.5">
           <Label>Kierunek</Label>
           <Select value={fieldOfStudyId || undefined} onValueChange={(v) => { setFieldOfStudyId(v); setSpecializationId(''); setStudyMode(''); setSemester('') }} disabled={!facultyId}>
-            <SelectTrigger><SelectValue placeholder="Wybierz kierunek" /></SelectTrigger>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Wybierz kierunek" /></SelectTrigger>
             <SelectContent>
               {fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
             </SelectContent>
@@ -267,8 +271,9 @@ function GenerateForm({
         <div className="space-y-1.5">
           <Label>Specjalność</Label>
           <Select value={specializationId || undefined} onValueChange={(v) => { setSpecializationId(v); setStudyMode(''); setSemester('') }} disabled={!fieldOfStudyId}>
-            <SelectTrigger><SelectValue placeholder={!fieldOfStudyId ? 'Najpierw wybierz kierunek' : 'Wybierz specjalność'} /></SelectTrigger>
+            <SelectTrigger className="w-full"><SelectValue placeholder={!fieldOfStudyId ? 'Najpierw wybierz kierunek' : 'Wybierz specjalność'} /></SelectTrigger>
             <SelectContent>
+              <SelectItem value="none">Brak (ogólnie dla kierunku)</SelectItem>
               {specs.map((s) => <SelectItem key={s.id} value={s.id}>{s.shortName} — {s.name}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -276,10 +281,10 @@ function GenerateForm({
 
         <div className="space-y-1.5">
           <Label>Tryb studiów</Label>
-          <Select value={studyMode || undefined} onValueChange={(v) => { setStudyMode(v); setSemester('') }} disabled={!specializationId || availableStudyModes.length === 0}>
+          <Select value={studyMode || undefined} onValueChange={(v) => { setStudyMode(v); setSemester('') }} disabled={!specChosen || availableStudyModes.length === 0}>
             <SelectTrigger>
               <SelectValue placeholder={
-                !specializationId ? 'Najpierw wybierz specjalność'
+                !specChosen ? 'Najpierw wybierz specjalność'
                 : availableStudyModes.length === 0 ? 'Brak planów studiów'
                 : 'Wybierz tryb'
               } />
@@ -314,13 +319,16 @@ function GenerateForm({
           <Label>Liczba studentów</Label>
           <Input type="number" min={1} value={totalStudents} onChange={(e) => setTotalStudents(e.target.value)} />
         </div>
+        </div>
 
-        <Button className="w-full" disabled={!canGenerate} onClick={() => generateMutation.mutate()}>
-          {generateMutation.isPending ? 'Generowanie...' : 'Generuj propozycję'}
-        </Button>
-        {generateMutation.isError && (
-          <p className="text-sm text-destructive">Błąd generowania grup</p>
-        )}
+        <div className="flex items-center gap-3">
+          <Button disabled={!canGenerate} onClick={() => generateMutation.mutate()}>
+            {generateMutation.isPending ? 'Generowanie...' : 'Generuj propozycję'}
+          </Button>
+          {generateMutation.isError && (
+            <p className="text-sm text-destructive">Błąd generowania grup</p>
+          )}
+        </div>
       </CardContent>
     </Card>
   )
@@ -434,97 +442,95 @@ export function GroupsPage() {
         <p className="text-muted-foreground text-sm">Zarządzanie grupami i hierarchią</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div>
-          {proposal && proposalMeta ? (
-            <ProposalPreview
-              proposal={proposal}
-              meta={proposalMeta}
-              onConfirm={() => {
-                setProposal(null)
-                setProposalMeta(null)
-                void queryClient.invalidateQueries({ queryKey: ['groups'] })
+      {/* Sekcja 1: Generowanie */}
+      <div className="mb-6">
+        {proposal && proposalMeta ? (
+          <ProposalPreview
+            proposal={proposal}
+            meta={proposalMeta}
+            onConfirm={() => {
+              setProposal(null)
+              setProposalMeta(null)
+              void queryClient.invalidateQueries({ queryKey: ['groups'] })
+            }}
+            onCancel={() => { setProposal(null); setProposalMeta(null) }}
+          />
+        ) : (
+          <GenerateForm
+            onProposal={({ proposal, ...meta }) => {
+              setProposal(proposal)
+              setProposalMeta(meta)
+            }}
+          />
+        )}
+      </div>
+
+      {/* Sekcja 2: Lista grup */}
+      <div>
+        <div className="flex items-center gap-3 mb-4">
+          <Select value={filterSemester || undefined} onValueChange={setFilterSemester}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Wszystkie semestry" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableSemesters.map((s) => (
+                <SelectItem key={s} value={String(s)}>Semestr {s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Badge variant="secondary">{groups.length} grup</Badge>
+          {canEdit && groups.length > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="ml-auto"
+              disabled={deleteAllMutation.isPending}
+              onClick={() => {
+                if (confirm(`Usunąć wszystkie grupy (${academicYear})?`))
+                  deleteAllMutation.mutate()
               }}
-              onCancel={() => { setProposal(null); setProposalMeta(null) }}
-            />
-          ) : (
-            <GenerateForm
-              onProposal={({ proposal, ...meta }) => {
-                setProposal(proposal)
-                setProposalMeta(meta)
-              }}
-            />
+            >
+              <Trash2 size={14} className="mr-1" />
+              Usuń wszystkie
+            </Button>
           )}
         </div>
 
-        <div className="lg:col-span-2">
-          <div className="flex items-center gap-3 mb-4">
-            <Select value={filterSemester || undefined} onValueChange={setFilterSemester}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="Wszystkie semestry" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableSemesters.map((s) => (
-                  <SelectItem key={s} value={String(s)}>
-                    Semestr {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Badge variant="secondary">{groups.length} grup</Badge>
-            {canEdit && groups.length > 0 && (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="ml-auto"
-                disabled={deleteAllMutation.isPending}
-                onClick={() => {
-                  if (confirm(`Usunąć wszystkie grupy (${academicYear})?`))
-                    deleteAllMutation.mutate()
-                }}
-              >
-                <Trash2 size={14} className="mr-1" />
-                Usuń wszystkie
-              </Button>
-            )}
+        {isLoading && <p className="text-muted-foreground">Ładowanie...</p>}
+
+        {!isLoading && groups.length === 0 && (
+          <div className="text-center py-12 text-muted-foreground">
+            <Users className="mx-auto mb-2" size={32} />
+            <p>Brak grup. Wygeneruj pierwszą propozycję.</p>
           </div>
+        )}
 
-          {isLoading && <p className="text-muted-foreground">Ładowanie...</p>}
+        {!isLoading && topLevelGroups.length > 0 && (
+          <Card>
+            <CardContent className="pt-2">
+              {topLevelGroups.map((g) => (
+                <GroupTree
+                  key={g.id}
+                  group={g}
+                  canEdit={canEdit}
+                  onEdit={setEditingGroup}
+                  onDelete={(g) => {
+                    if (confirm(`Usunąć grupę „${g.name}"?`)) deleteMutation.mutate(g.id)
+                  }}
+                />
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
-          {!isLoading && groups.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
-              <Users className="mx-auto mb-2" size={32} />
-              <p>Brak grup. Wygeneruj pierwszą propozycję.</p>
-            </div>
-          )}
-
-          {!isLoading && topLevelGroups.length > 0 && (
-            <Card>
-              <CardContent className="pt-2">
-                {topLevelGroups.map((g) => (
-                  <GroupTree
-                    key={g.id}
-                    group={g}
-                    canEdit={canEdit}
-                    onEdit={setEditingGroup}
-                    onDelete={(g) => {
-                      if (confirm(`Usunąć grupę „${g.name}"?`)) deleteMutation.mutate(g.id)
-                    }}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {editingGroup && (
-            <EditGroupDialog
-              key={editingGroup.id}
-              group={editingGroup}
-              onClose={() => setEditingGroup(null)}
-              onSave={(name, size) => updateMutation.mutate({ id: editingGroup.id, name, size })}
-            />
-          )}
-        </div>
+        {editingGroup && (
+          <EditGroupDialog
+            key={editingGroup.id}
+            group={editingGroup}
+            onClose={() => setEditingGroup(null)}
+            onSave={(name, size) => updateMutation.mutate({ id: editingGroup.id, name, size })}
+          />
+        )}
       </div>
     </div>
   )
