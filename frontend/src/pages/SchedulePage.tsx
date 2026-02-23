@@ -123,7 +123,10 @@ function formatDate(d: Date): string {
 }
 
 function isoDate(d: Date): string {
-  return d.toISOString().split('T')[0]!
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 // ─── Draggable blok szablonu ───────────────────────────────────
@@ -1152,7 +1155,7 @@ function CalendarTab({
 
   const holidaySet = useMemo(() => {
     const set = new Map<string, string>()
-    holidays.forEach(h => set.set(isoDate(new Date(h.date)), h.name))
+    holidays.forEach(h => set.set(h.date.slice(0, 10), h.name))
     return set
   }, [holidays])
 
@@ -1160,7 +1163,7 @@ function CalendarTab({
     const map: Record<string, ScheduleEntry[]> = {}
     for (const d of days) map[d.key] = []
     for (const e of entries) {
-      const entryDate = isoDate(new Date(e.date))
+      const entryDate = e.date.slice(0, 10)
       const dayOfWeek = days.find(d => isoDate(weekDates[d.key]) === entryDate)
       if (dayOfWeek) map[dayOfWeek.key]!.push(e)
     }
@@ -1198,7 +1201,7 @@ function CalendarTab({
     const newStart = minsToTime(newStartMins)
     const newEnd = minsToTime(newStartMins + durationMins)
 
-    const currentDate = isoDate(new Date(draggedEntry.date))
+    const currentDate = draggedEntry.date.slice(0, 10)
     if (currentDate === targetDate && draggedEntry.startTime === newStart) return
 
     setMoveState({ entry: draggedEntry, targetDay, targetSlot: slotTime })
