@@ -5,6 +5,9 @@ export type GroupType = 'LECTURE' | 'EXERCISE' | 'LAB' | 'PROJECT' | 'SEMINAR'
 export type RoomType = 'LECTURE' | 'EXERCISE' | 'LAB' | 'COMPUTER_LAB' | 'SEMINAR' | 'SPORTS'
 export type AssessmentType = 'EXAM' | 'CREDIT'
 export type DayOfWeek = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY'
+export type WeekType = 'EVERY' | 'EVEN' | 'ODD'
+export type EntryStatus = 'SCHEDULED' | 'CANCELLED' | 'MAKEUP'
+export type SemesterType = 'WINTER' | 'SUMMER'
 
 export interface User {
   id: string
@@ -68,20 +71,75 @@ export interface SemesterEntries {
   entries: CurriculumEntry[]
 }
 
-export interface ScheduleEntry {
+// ─── Wzorzec tygodniowy ────────────────────────────────────────
+
+export interface ScheduleTemplate {
   id: string
   dayOfWeek: DayOfWeek
   startTime: string
   endTime: string
   academicHours: number
   classType: ClassType
-  academicYear: string
+  weekType: WeekType
+  studyMode: StudyMode
   semester: number
-  weekType: 'EVERY' | 'EVEN' | 'ODD'
-  room: { id: string; number: string; building: { name: string } }
-  instructor: { id: string; firstName: string; lastName: string }
+  academicYear: string
+  room: {
+    id: string
+    number: string
+    type: RoomType
+    capacity: number
+    building: { id: string; name: string }
+  }
+  instructor: { id: string; firstName: string; lastName: string; title?: string | null }
   studentGroup?: { id: string; name: string } | null
-  curriculumEntry: { subject: { name: string } }
+  curriculumEntry: {
+    id: string
+    subject: { id: string; name: string }
+    hoursLecture: number
+    hoursExercise: number
+    hoursLab: number
+    hoursProject: number
+    hoursSeminar: number
+  }
+}
+
+// ─── Konkretny termin ─────────────────────────────────────────
+
+export interface ScheduleEntry {
+  id: string
+  date: string             // ISO date string "2025-10-07T00:00:00.000Z"
+  startTime: string
+  endTime: string
+  status: EntryStatus
+  classType: ClassType
+  academicHours: number
+  templateId?: string | null
+  template?: { id: string; dayOfWeek: DayOfWeek; weekType: WeekType } | null
+  room: { id: string; number: string; building: { id: string; name: string } }
+  instructor: { id: string; firstName: string; lastName: string; title?: string | null }
+  studentGroup?: { id: string; name: string } | null
+  curriculumEntry: { id: string; subject: { id: string; name: string } }
+}
+
+// ─── Kalendarz semestru ───────────────────────────────────────
+
+export interface SemesterCalendar {
+  id: string
+  academicYear: string
+  semesterType: SemesterType
+  studyMode: StudyMode
+  startDate: string
+  endDate: string
+  teachingWeeks: number
+}
+
+// ─── Dzień wolny ──────────────────────────────────────────────
+
+export interface PublicHoliday {
+  id: string
+  date: string
+  name: string
 }
 
 export interface StudentGroup {
