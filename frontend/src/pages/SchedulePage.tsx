@@ -890,6 +890,11 @@ function EntryDetailPanel({
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['entries'] }); onClose() },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: () => scheduleApi.deleteEntry(entry.id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['entries'] }); onClose() },
+  })
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={onClose}>
       <div
@@ -919,17 +924,28 @@ function EntryDetailPanel({
             </span>
           </p>
         </div>
-        {entry.status === 'SCHEDULED' && (
+        <div className="flex flex-col gap-2">
+          {entry.status === 'SCHEDULED' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => { if (confirm('Odwołać te zajęcia? (zmieni status na Odwołane)')) cancelMutation.mutate() }}
+              disabled={cancelMutation.isPending || deleteMutation.isPending}
+            >
+              Odwołaj zajęcia
+            </Button>
+          )}
           <Button
             variant="destructive"
             size="sm"
             className="w-full"
-            onClick={() => { if (confirm('Odwołać te zajęcia?')) cancelMutation.mutate() }}
-            disabled={cancelMutation.isPending}
+            onClick={() => { if (confirm('Trwale usunąć ten termin z bazy danych?')) deleteMutation.mutate() }}
+            disabled={deleteMutation.isPending || cancelMutation.isPending}
           >
-            Odwołaj zajęcia
+            {deleteMutation.isPending ? 'Usuwanie...' : 'Usuń termin'}
           </Button>
-        )}
+        </div>
       </div>
     </div>
   )
