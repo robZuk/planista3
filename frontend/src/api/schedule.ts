@@ -41,6 +41,9 @@ export const scheduleApi = {
   deleteTemplate: (id: string) =>
     client.delete(`/schedule/templates/${id}`),
 
+  deleteTemplates: (params: { semester?: number; academicYear?: string; studyMode?: StudyMode }) =>
+    client.delete<{ data: { deleted: number } }>('/schedule/templates', { params }),
+
   getSummary: (curriculumVersionId: string) =>
     client.get<{ data: { semesters: Array<{ semester: number; subjects: Array<{ subjectName: string; classType: string; planned: number; required: number; remaining: number; completed: boolean }> }> } }>(
       `/schedule/summary/${curriculumVersionId}`
@@ -93,6 +96,9 @@ export const scheduleApi = {
 
   deleteEntry: (id: string, cancel?: boolean) =>
     client.delete(`/schedule/entries/${id}`, { params: cancel ? { cancel: 'true' } : undefined }),
+
+  deleteEntries: (params: { from?: string; to?: string; studentGroupId?: string; instructorId?: string }) =>
+    client.delete<{ data: { deleted: number } }>('/schedule/entries', { params }),
 
   moveEntry: (id: string, data: {
     newDate: string

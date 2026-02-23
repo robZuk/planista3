@@ -120,12 +120,17 @@ export const generateTemplate = async (req: Request, res: Response) => {
       include: { building: { select: { name: true } } },
     })
 
+    const instructors = await prisma.instructor.findMany({
+      select: { id: true, firstName: true, lastName: true },
+    })
+
     const lectureGroup = groups.find(g => g.type === 'LECTURE')
     const groupSize = lectureGroup?.size ?? 30
 
     // Śledzenie zajętości slotów w drafcie
-    const usedSlots = new Set<string>()       // `${day}-${t}` per 30 min
-    const usedRoomSlots = new Set<string>()   // `${roomId}-${day}-${t}`
+    const usedSlots = new Set<string>()            // `${day}-${t}` per 30 min
+    const usedRoomSlots = new Set<string>()        // `${roomId}-${day}-${t}`
+    const usedInstructorSlots = new Set<string>()  // `${instructorId}-${day}-${t}`
 
     const markSlot = (day: number, start: number, end: number) => {
       for (let t = start; t < end; t += 30) usedSlots.add(`${day}-${t}`)
@@ -139,6 +144,13 @@ export const generateTemplate = async (req: Request, res: Response) => {
     }
     const isRoomFree = (roomId: string, day: number, start: number, end: number) => {
       for (let t = start; t < end; t += 30) if (usedRoomSlots.has(`${roomId}-${day}-${t}`)) return false
+      return true
+    }
+    const markInstructor = (instructorId: string, day: number, start: number, end: number) => {
+      for (let t = start; t < end; t += 30) usedInstructorSlots.add(`${instructorId}-${day}-${t}`)
+    }
+    const isInstructorFree = (instructorId: string, day: number, start: number, end: number) => {
+      for (let t = start; t < end; t += 30) if (usedInstructorSlots.has(`${instructorId}-${day}-${t}`)) return false
       return true
     }
 
@@ -177,7 +189,19 @@ export const generateTemplate = async (req: Request, res: Response) => {
               const toTime = (mins: number) =>
                 `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
 
-              const instructorId = entry.instructorId
+              // Prowadzący z siatki lub pierwszy wolny
+              let instructorId = entry.instructorId ?? null
+              let instructorName: string | null = null
+              if (instructorId) {
+                const instr = instructors.find(i => i.id === instructorId)
+                instructorName = instr ? `${instr.firstName} ${instr.lastName}` : null
+              } else {
+                const freeInstructor = instructors.find(i => isInstructorFree(i.id, day, start, end))
+                if (freeInstructor) {
+                  instructorId = freeInstructor.id
+                  instructorName = `${freeInstructor.firstName} ${freeInstructor.lastName}`
+                }
+              }
 
               proposals.push({
                 curriculumEntryId: entry.id,
@@ -190,7 +214,8 @@ export const generateTemplate = async (req: Request, res: Response) => {
                 roomId: freeRoom.id,
                 roomNumber: freeRoom.number,
                 buildingName: freeRoom.building.name,
-                instructorId: instructorId ?? null,
+                instructorId,
+                instructorName,
                 semester,
                 academicYear,
                 studyMode,
@@ -199,6 +224,7 @@ export const generateTemplate = async (req: Request, res: Response) => {
 
               markSlot(day, start, end)
               markRoom(freeRoom.id, day, start, end)
+              if (instructorId) markInstructor(instructorId, day, start, end)
               found = true
               break outer
             }
@@ -206,12 +232,19 @@ export const generateTemplate = async (req: Request, res: Response) => {
         }
 
         if (!found) {
+          const roomsOfType = rooms.filter(r => roomTypeMap[type].includes(r.type))
+          const warning = suitableRooms.length === 0
+            ? roomsOfType.length === 0
+              ? `Brak sal typu ${allowedRoomTypes.join('/')} w bazie`
+              : `Brak sal ${allowedRoomTypes.join('/')} o pojemności ≥ ${groupSize} (dostępne: ${roomsOfType.map(r => r.number).join(', ')})`
+            : 'Wszystkie sale i prowadzący zajęci w oknie czasowym'
+
           proposals.push({
             curriculumEntryId: entry.id,
             subjectName: entry.subject.name,
             classType: type,
             academicHours: blockHours,
-            warning: 'Nie znaleziono wolnego slotu',
+            warning,
           })
         }
       }

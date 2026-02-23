@@ -15,6 +15,7 @@ import { buildingsApi } from '@/api/buildings'
 import { instructorsApi } from '@/api/instructors'
 import { groupsApi } from '@/api/groups'
 import { curriculumApi } from '@/api/curriculum'
+import { facultiesApi, fieldsApi, specsApi } from '@/api/faculties'
 import { useAcademicYearStore, SEMESTER_TYPE_NUMBERS } from '@/store/academicYearStore'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -61,7 +62,7 @@ const CLASS_LABELS: Record<ClassType, string> = {
 
 const WEEK_TYPE_LABELS = { EVERY: 'Co tydzień', EVEN: 'Parzyste', ODD: 'Nieparzyste' }
 
-const SLOT_HEIGHT = 32   // px per 30 min
+const SLOT_HEIGHT = 20   // px per 15 min
 const START_HOUR  = 7
 const END_HOUR    = 20
 const START_MINS  = START_HOUR * 60
@@ -70,7 +71,9 @@ function generateSlots(): string[] {
   const slots: string[] = []
   for (let h = START_HOUR; h < END_HOUR; h++) {
     slots.push(`${String(h).padStart(2, '0')}:00`)
+    slots.push(`${String(h).padStart(2, '0')}:15`)
     slots.push(`${String(h).padStart(2, '0')}:30`)
+    slots.push(`${String(h).padStart(2, '0')}:45`)
   }
   return slots
 }
@@ -86,14 +89,21 @@ function minsToTime(mins: number): string {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
 }
 
-function blockStyle(startTime: string, endTime: string): React.CSSProperties {
+const ACADEMIC_HOUR_MINS = 45  // czas zajęć w jednej godzinie akademickiej
+const BREAK_MINS = 15           // przerwa po każdej godzinie akademickiej
+const SLOT_UNIT = ACADEMIC_HOUR_MINS + BREAK_MINS  // 60 min na siatce = 1h akademicka
+
+// Całkowita wysokość bloku: N godzin × (45 zajęć + 15 przerwy) = N × 60 min
+function blockStyle(startTime: string, academicHours: number): React.CSSProperties {
   const start = timeToMins(startTime) - START_MINS
-  const duration = timeToMins(endTime) - timeToMins(startTime)
+  const totalMins = academicHours * SLOT_UNIT
   return {
     position: 'absolute',
-    top: (start / 30) * SLOT_HEIGHT,
-    height: Math.max((duration / 30) * SLOT_HEIGHT - 2, 20),
+    top: (start / 15) * SLOT_HEIGHT,
+    height: (totalMins / 15) * SLOT_HEIGHT - 2,
     left: 4, right: 4,
+    display: 'flex',
+    flexDirection: 'column',
   }
 }
 
@@ -144,26 +154,45 @@ function DraggableTemplateBlock({
   })
 
   const style: React.CSSProperties = {
-    ...blockStyle(template.startTime, template.endTime),
     transform: CSS.Translate.toString(transform),
     opacity: isDragging ? 0.4 : 1,
     zIndex: isDragging ? 50 : 1,
     cursor: 'grab',
   }
 
+  const hourPx = (ACADEMIC_HOUR_MINS / 15) * SLOT_HEIGHT  // 45 min w pikselach
+  const breakPx = (BREAK_MINS / 15) * SLOT_HEIGHT          // 15 min w pikselach
+
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{ ...blockStyle(template.startTime, template.academicHours), ...{ transform: style.transform, opacity: style.opacity, zIndex: style.zIndex, cursor: style.cursor } }}
       {...listeners}
       {...attributes}
       onClick={(e) => { e.stopPropagation(); onClick() }}
-      className={`rounded border-l-4 px-2 py-1 text-xs overflow-hidden transition-opacity ${CLASS_COLORS[template.classType]}`}
+      className={`rounded border-l-4 text-xs overflow-hidden transition-opacity ${CLASS_COLORS[template.classType]}`}
     >
-      <p className="font-semibold truncate leading-tight">{template.curriculumEntry.subject.name}</p>
-      <p className="truncate opacity-70">
-        {CLASS_LABELS[template.classType]} · {template.room.number} · {WEEK_TYPE_LABELS[template.weekType]}
-      </p>
+      {Array.from({ length: template.academicHours }, (_, i) => (
+        <div key={i} className="flex flex-col shrink-0">
+          <div style={{ height: hourPx }} className="px-2 py-1 overflow-hidden">
+            {i === 0 && (
+              <>
+                <p className="font-semibold truncate leading-tight">{template.curriculumEntry.subject.name}</p>
+                <p className="truncate opacity-70">
+                  {CLASS_LABELS[template.classType]} · {template.room.number} · {WEEK_TYPE_LABELS[template.weekType]}
+                </p>
+                <p className="truncate opacity-60">{template.startTime}–{template.endTime}</p>
+                <p className="truncate opacity-60">
+                  {template.instructor.title ? `${template.instructor.title} ` : ''}{template.instructor.lastName}
+                </p>
+              </>
+            )}
+          </div>
+          <div style={{ height: breakPx }} className="shrink-0 border-t border-dashed border-current/40 px-2 flex items-center opacity-50">
+            <span className="text-[9px]">przerwa 15'</span>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -184,27 +213,48 @@ function DraggableEntryBlock({
 
   const isCancelled = entry.status === 'CANCELLED'
   const style: React.CSSProperties = {
-    ...blockStyle(entry.startTime, entry.endTime),
     transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.3 : isCancelled ? 0.4 : 1,
+    opacity: isDragging ? 0.3 : 1,
     zIndex: isDragging ? 50 : 1,
     cursor: isCancelled ? 'default' : 'grab',
   }
 
+  const hourPx = (ACADEMIC_HOUR_MINS / 15) * SLOT_HEIGHT
+  const breakPx = (BREAK_MINS / 15) * SLOT_HEIGHT
+
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{ ...blockStyle(entry.startTime, entry.academicHours), ...{ transform: style.transform, opacity: style.opacity, zIndex: style.zIndex, cursor: style.cursor } }}
       {...(isCancelled ? {} : { ...listeners, ...attributes })}
       onClick={(e) => { e.stopPropagation(); onClick() }}
-      className={`rounded border-l-4 px-2 py-1 text-xs overflow-hidden transition-opacity ${CLASS_COLORS[entry.classType]} ${isCancelled ? 'line-through' : ''}`}
+      className={`rounded border-l-4 text-xs overflow-hidden transition-opacity ${CLASS_COLORS[entry.classType]} ${isCancelled ? 'opacity-50' : ''}`}
     >
-      <p className="font-semibold truncate leading-tight">{entry.curriculumEntry.subject.name}</p>
-      <p className="truncate opacity-70">
-        {CLASS_LABELS[entry.classType]} · {entry.room.number}
-        {entry.status === 'CANCELLED' && ' · Odwołane'}
-        {entry.status === 'MAKEUP' && ' · Odrobienie'}
-      </p>
+      {Array.from({ length: entry.academicHours }, (_, i) => (
+        <div key={i} className="flex flex-col shrink-0">
+          <div style={{ height: hourPx }} className="px-2 py-1 overflow-hidden">
+            {i === 0 && (
+              <>
+                <p className={`font-semibold truncate leading-tight ${isCancelled ? 'line-through' : ''}`}>{entry.curriculumEntry.subject.name}</p>
+                <p className="truncate opacity-70">
+                  {CLASS_LABELS[entry.classType]} · {entry.room.number}
+                  {entry.status === 'CANCELLED' && ' · Odwołane'}
+                  {entry.status === 'MAKEUP' && ' · Odrobienie'}
+                </p>
+                <p className="truncate opacity-60">{entry.startTime}–{entry.endTime}</p>
+                <p className="truncate opacity-60">
+                  {entry.instructor.title ? `${entry.instructor.title} ` : ''}{entry.instructor.lastName}
+                </p>
+              </>
+            )}
+          </div>
+          {!isCancelled && (
+            <div style={{ height: breakPx }} className="shrink-0 border-t border-dashed border-current/40 px-2 flex items-center opacity-50">
+              <span className="text-[9px]">przerwa 15'</span>
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -240,15 +290,24 @@ function TimeColumn() {
     <div className="w-14 flex-shrink-0 border-r border-border">
       <div className="h-10 border-b border-border" />
       <div style={{ height: SLOTS.length * SLOT_HEIGHT }} className="relative">
-        {SLOTS.map((slot, i) => (
-          <div
-            key={slot}
-            style={{ top: i * SLOT_HEIGHT, height: SLOT_HEIGHT }}
-            className="absolute w-full flex items-start justify-end pr-1 text-[10px] text-muted-foreground"
-          >
-            {slot.endsWith(':00') ? slot : ''}
-          </div>
-        ))}
+        {SLOTS.map((slot, i) => {
+          const isHour = slot.endsWith(':00')
+          const isHalf = slot.endsWith(':30')
+          return (
+            <div
+              key={slot}
+              style={{ top: i * SLOT_HEIGHT, height: SLOT_HEIGHT }}
+              className="absolute w-full flex items-start justify-end pr-1"
+            >
+              {isHour && (
+                <span className="text-[10px] text-muted-foreground leading-none">{slot}</span>
+              )}
+              {isHalf && (
+                <span className="text-[9px] text-muted-foreground/50 leading-none">{slot}</span>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -951,21 +1010,258 @@ function EntryDetailPanel({
   )
 }
 
+// ─── Dialog auto-generowania wzorca ──────────────────────────
+
+type TemplateProposal = {
+  curriculumEntryId: string
+  subjectName: string
+  classType: ClassType
+  academicHours: number
+  dayOfWeek?: DayOfWeek
+  startTime?: string
+  endTime?: string
+  roomId?: string
+  roomNumber?: string
+  buildingName?: string
+  instructorId?: string | null
+  instructorName?: string | null
+  semester: number
+  academicYear: string
+  studyMode: StudyMode
+  weekType?: string
+  warning?: string
+}
+
+function AutoGenerateDialog({
+  open, onClose, semester, academicYear, studyMode, fieldOfStudyId, specializationId,
+}: {
+  open: boolean
+  onClose: () => void
+  semester: number
+  academicYear: string
+  studyMode: StudyMode
+  fieldOfStudyId?: string
+  specializationId?: string
+}) {
+  const [proposals, setProposals] = useState<TemplateProposal[]>([])
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [step, setStep] = useState<'confirm' | 'preview'>('confirm')
+
+  const qc = useQueryClient()
+
+  const generateMutation = useMutation({
+    mutationFn: () => scheduleApi.generateTemplate({
+      fieldOfStudyId: fieldOfStudyId!,
+      specializationId: specializationId || undefined,
+      semester,
+      academicYear,
+      studyMode,
+    }),
+    onSuccess: (res) => {
+      const data = res.data.data as TemplateProposal[]
+      setProposals(data)
+      setSelected(new Set(
+        data.map((p, i) => !p.warning ? i : -1).filter(i => i >= 0)
+      ))
+      setStep('preview')
+    },
+  })
+
+  const [savedCount, setSavedCount] = useState(0)
+  const [skippedNoInstructor, setSkippedNoInstructor] = useState(0)
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const toSave = proposals.filter((p, i) => selected.has(i) && !p.warning)
+      let saved = 0
+      let skipped = 0
+      for (const p of toSave) {
+        if (!p.instructorId) { skipped++; continue }
+        await scheduleApi.createTemplate({
+          curriculumEntryId: p.curriculumEntryId,
+          classType: p.classType,
+          academicHours: p.academicHours,
+          roomId: p.roomId!,
+          instructorId: p.instructorId,
+          dayOfWeek: p.dayOfWeek!,
+          startTime: p.startTime!,
+          endTime: p.endTime!,
+          semester: p.semester,
+          academicYear: p.academicYear,
+          weekType: p.weekType ?? 'EVERY',
+          studyMode: p.studyMode,
+        })
+        saved++
+      }
+      setSavedCount(saved)
+      setSkippedNoInstructor(skipped)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['templates'] })
+      handleClose()
+    },
+  })
+
+  function handleClose() {
+    setStep('confirm')
+    setProposals([])
+    setSelected(new Set())
+    setSavedCount(0)
+    setSkippedNoInstructor(0)
+    onClose()
+  }
+
+  // valid = slot znaleziony (brak warning)
+  const validIndices = proposals.map((p, i) => !p.warning ? i : -1).filter(i => i >= 0)
+
+  function toggleAll() {
+    setSelected(selected.size === validIndices.length ? new Set() : new Set(validIndices))
+  }
+
+  const DAY_LABELS: Partial<Record<DayOfWeek, string>> = {
+    MONDAY: 'Pon', TUESDAY: 'Wt', WEDNESDAY: 'Śr', THURSDAY: 'Czw',
+    FRIDAY: 'Pt', SATURDAY: 'Sb', SUNDAY: 'Nd',
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Auto-generuj wzorzec tygodnia</DialogTitle>
+        </DialogHeader>
+
+        {step === 'confirm' && (
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Generator dobierze wolne sloty czasowe, sale i prowadzących na podstawie siatki godzin.
+            </p>
+            <div className="rounded-md border p-3 text-sm space-y-1 bg-muted/30">
+              <div><span className="text-muted-foreground">Semestr:</span> <strong>{semester}</strong></div>
+              <div><span className="text-muted-foreground">Rok akademicki:</span> <strong>{academicYear}</strong></div>
+              <div><span className="text-muted-foreground">Tryb:</span> <strong>{studyMode === 'FULL_TIME' ? 'stacjonarne' : 'niestacjonarne'}</strong></div>
+              {fieldOfStudyId
+                ? <div><span className="text-muted-foreground">Kierunek:</span> <strong>wybrany z filtrów</strong></div>
+                : <div className="text-destructive text-xs">Wybierz kierunek w filtrach głównych, aby uruchomić generator.</div>
+              }
+            </div>
+            {generateMutation.isError && (
+              <p className="text-sm text-destructive">
+                {(generateMutation.error as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Błąd generowania — brak grup lub siatki godzin'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {step === 'preview' && (
+          <div className="space-y-3 py-2">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {proposals.length} propozycji · {selected.size} zaznaczonych
+              </p>
+              <Button variant="ghost" size="sm" onClick={toggleAll}>
+                {selected.size > 0 ? 'Odznacz wszystkie' : 'Zaznacz wszystkie'}
+              </Button>
+            </div>
+
+            <div className="border rounded-md divide-y text-sm">
+              {proposals.map((p, i) => {
+                const hasSlot = !p.warning
+                const hasInstructor = !!p.instructorId
+                return (
+                  <div key={i} className={`flex items-start gap-3 px-3 py-2 ${!hasSlot ? 'opacity-50 bg-muted/30' : ''}`}>
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 cursor-pointer"
+                      checked={selected.has(i)}
+                      disabled={!hasSlot}
+                      onChange={() => setSelected(prev => {
+                        const next = new Set(prev)
+                        next.has(i) ? next.delete(i) : next.add(i)
+                        return next
+                      })}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium">{p.subjectName}</span>
+                        <Badge variant="outline" className="text-[10px]">{CLASS_LABELS[p.classType]}</Badge>
+                        <span className="text-xs text-muted-foreground">{p.academicHours}h</span>
+                      </div>
+                      {hasSlot ? (
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {DAY_LABELS[p.dayOfWeek!]} {p.startTime}–{p.endTime} · sala {p.roomNumber} ({p.buildingName})
+                          {p.instructorName && <span> · {p.instructorName}</span>}
+                          {!hasInstructor && (
+                            <span className="block text-yellow-600 dark:text-yellow-400 mt-0.5">Brak prowadzącego — wpis zostanie pominięty przy zapisie</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-destructive mt-0.5">{p.warning}</div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {skippedNoInstructor > 0 && !saveMutation.isError && (
+              <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                Pominięto {skippedNoInstructor} wpisów bez przypisanego prowadzącego.
+              </p>
+            )}
+            {saveMutation.isError && (
+              <p className="text-sm text-destructive">Błąd zapisu — sprawdź konflikty terminów</p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          {step === 'confirm' ? (
+            <>
+              <Button variant="ghost" onClick={handleClose}>Anuluj</Button>
+              <Button
+                onClick={() => generateMutation.mutate()}
+                disabled={!fieldOfStudyId || generateMutation.isPending}
+              >
+                {generateMutation.isPending ? 'Generowanie...' : 'Generuj propozycje'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={() => setStep('confirm')}>← Wróć</Button>
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={selected.size === 0 || saveMutation.isPending}
+              >
+                {saveMutation.isPending ? 'Zapisywanie...' : `Zatwierdź zaznaczone (${selected.size})`}
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Zakładka Wzorzec tygodnia ─────────────────────────────────
 
 function TemplateTab({
   academicYear,
   semester,
   studyMode,
+  fieldOfStudyId,
+  specializationId,
 }: {
   academicYear: string
   semester: number
   studyMode: StudyMode
+  fieldOfStudyId?: string
+  specializationId?: string
 }) {
   const days = studyMode === 'FULL_TIME' ? DAYS_FULL : DAYS_PART
   const [addSlot, setAddSlot] = useState<{ dayOfWeek: string; startTime: string } | null>(null)
   const [editTemplate, setEditTemplate] = useState<ScheduleTemplate | null>(null)
   const [showGenerateSemester, setShowGenerateSemester] = useState(false)
+  const [showAutoGenerate, setShowAutoGenerate] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
 
   const { data, refetch } = useQuery({
@@ -991,6 +1287,11 @@ function TemplateTab({
   const updateMutation = useMutation({
     mutationFn: ({ id, dayOfWeek, startTime, endTime }: { id: string; dayOfWeek: string; startTime: string; endTime: string }) =>
       scheduleApi.updateTemplate(id, { dayOfWeek, startTime, endTime }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
+  })
+
+  const deleteManyMutation = useMutation({
+    mutationFn: () => scheduleApi.deleteTemplates({ semester, academicYear, studyMode }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
   })
 
@@ -1025,8 +1326,23 @@ function TemplateTab({
   return (
     <div>
       <div className="flex flex-wrap gap-2 mb-4">
+        <Button variant="outline" size="sm" onClick={() => setShowAutoGenerate(true)} disabled={!fieldOfStudyId}>
+          Auto-generuj wzorzec
+        </Button>
         <Button variant="outline" size="sm" onClick={() => setShowGenerateSemester(true)} disabled={templates.length === 0}>
           Generuj terminy semestru ({templates.length} wzorców)
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={deleteManyMutation.isPending || templates.length === 0}
+          onClick={() => {
+            if (confirm(`Usunąć wszystkie wzorce dla semestru ${semester} (${academicYear}, ${studyMode === 'FULL_TIME' ? 'stacjonarne' : 'niestacjonarne'})?`)) {
+              deleteManyMutation.mutate()
+            }
+          }}
+        >
+          {deleteManyMutation.isPending ? 'Usuwanie...' : `Wyczyść wzorzec (${templates.length})`}
         </Button>
       </div>
 
@@ -1068,7 +1384,7 @@ function TemplateTab({
         <DragOverlay>
           {activeTemplate && (
             <div
-              style={{ height: Math.max(((timeToMins(activeTemplate.endTime) - timeToMins(activeTemplate.startTime)) / 30) * SLOT_HEIGHT - 2, 20) }}
+              style={{ height: activeTemplate.academicHours * SLOT_UNIT / 15 * SLOT_HEIGHT - 2 }}
               className={`rounded border-l-4 px-2 py-1 text-xs shadow-xl w-32 ${CLASS_COLORS[activeTemplate.classType]}`}
             >
               <p className="font-semibold truncate">{activeTemplate.curriculumEntry.subject.name}</p>
@@ -1109,6 +1425,16 @@ function TemplateTab({
           onClose={() => setShowGenerateSemester(false)}
         />
       )}
+
+      <AutoGenerateDialog
+        open={showAutoGenerate}
+        onClose={() => setShowAutoGenerate(false)}
+        semester={semester}
+        academicYear={academicYear}
+        studyMode={studyMode}
+        fieldOfStudyId={fieldOfStudyId}
+        specializationId={specializationId}
+      />
     </div>
   )
 }
@@ -1118,9 +1444,15 @@ function TemplateTab({
 function CalendarTab({
   academicYear,
   studyMode,
+  semester,
+  fieldOfStudyId,
+  specializationId,
 }: {
   academicYear: string
   studyMode: StudyMode
+  semester?: number
+  fieldOfStudyId?: string
+  specializationId?: string
 }) {
   const days = studyMode === 'FULL_TIME' ? DAYS_FULL : DAYS_PART
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
@@ -1139,6 +1471,12 @@ function CalendarTab({
   const fromStr = isoDate(weekDates['MONDAY'])
   const toStr = isoDate(weekDates['SUNDAY'])
 
+  const qc = useQueryClient()
+  const deleteManyMutation = useMutation({
+    mutationFn: () => scheduleApi.deleteEntries({}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['entries'] }),
+  })
+
   const { data: entriesData, refetch } = useQuery({
     queryKey: ['entries', fromStr, toStr, filterGroupId, filterInstructorId],
     queryFn: () => scheduleApi.getEntries({
@@ -1155,8 +1493,12 @@ function CalendarTab({
   })
 
   const { data: groupsData } = useQuery({
-    queryKey: ['groups-all', academicYear],
-    queryFn: () => groupsApi.getAll({ academicYear }),
+    queryKey: ['groups-all', academicYear, fieldOfStudyId, semester],
+    queryFn: () => groupsApi.getAll({
+      academicYear,
+      ...(fieldOfStudyId ? { fieldOfStudyId } : {}),
+      ...(semester ? { semester } : {}),
+    }),
   })
 
   const { data: instructorsData } = useQuery({
@@ -1166,7 +1508,10 @@ function CalendarTab({
 
   const entries = entriesData?.data.data ?? []
   const holidays = holidaysData?.data.data ?? []
-  const groups = groupsData?.data.data ?? []
+  const allGroups = groupsData?.data.data ?? []
+  const groups = specializationId
+    ? allGroups.filter(g => g.specializationId === specializationId)
+    : allGroups
   const instructors = instructorsData?.data.data ?? []
 
   const holidaySet = useMemo(() => {
@@ -1259,6 +1604,19 @@ function CalendarTab({
           </SelectContent>
         </Select>
 
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={deleteManyMutation.isPending}
+          onClick={() => {
+            if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
+              deleteManyMutation.mutate()
+            }
+          }}
+        >
+          {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść wszystkie terminy'}
+        </Button>
+
         <Button variant="outline" size="sm" onClick={() => setShowCalendarDialog(true)}>
           Kalendarze
         </Button>
@@ -1315,7 +1673,7 @@ function CalendarTab({
         <DragOverlay>
           {activeEntry && (
             <div
-              style={{ height: Math.max(((timeToMins(activeEntry.endTime) - timeToMins(activeEntry.startTime)) / 30) * SLOT_HEIGHT - 2, 20) }}
+              style={{ height: activeEntry.academicHours * SLOT_UNIT / 15 * SLOT_HEIGHT - 2 }}
               className={`rounded border-l-4 px-2 py-1 text-xs shadow-xl w-32 opacity-90 ${CLASS_COLORS[activeEntry.classType]}`}
             >
               <p className="font-semibold truncate">{activeEntry.curriculumEntry.subject.name}</p>
@@ -1363,8 +1721,30 @@ export function SchedulePage() {
   const [tab, setTab] = useState<'template' | 'calendar'>('template')
   const [semester, setSemester] = useState<string>('')
   const [studyMode, setStudyMode] = useState<StudyMode>('FULL_TIME')
+  const [facultyId, setFacultyId] = useState('')
+  const [fieldOfStudyId, setFieldOfStudyId] = useState('')
+  const [specializationId, setSpecializationId] = useState('')
 
   const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
+
+  const { data: facultiesData } = useQuery({
+    queryKey: ['faculties'],
+    queryFn: () => facultiesApi.getAll(),
+  })
+  const { data: fieldsData } = useQuery({
+    queryKey: ['fields-of-study', facultyId],
+    queryFn: () => fieldsApi.getAll(facultyId || undefined),
+    enabled: true,
+  })
+  const { data: specsData } = useQuery({
+    queryKey: ['specializations', fieldOfStudyId],
+    queryFn: () => specsApi.getAll(fieldOfStudyId),
+    enabled: !!fieldOfStudyId,
+  })
+
+  const faculties = facultiesData?.data.data ?? []
+  const fields = fieldsData?.data.data ?? []
+  const specs = specsData?.data.data ?? []
 
   return (
     <div>
@@ -1376,28 +1756,67 @@ export function SchedulePage() {
       {/* Filtry globalne */}
       <div className="flex flex-wrap gap-3 mb-4 p-4 bg-card rounded-lg border border-border">
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">Semestr</label>
-          <Select value={semester || undefined} onValueChange={setSemester}>
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder="Wszystkie" />
-            </SelectTrigger>
+          <label className="text-xs font-medium text-muted-foreground">Wydział</label>
+          <Select value={facultyId || '__all__'} onValueChange={v => {
+            setFacultyId(v === '__all__' ? '' : v)
+            setFieldOfStudyId('')
+            setSpecializationId('')
+          }}>
+            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {availableSemesters.map(s => (
-                <SelectItem key={s} value={String(s)}>Semestr {s}</SelectItem>
-              ))}
+              <SelectItem value="__all__">Wszystkie wydziały</SelectItem>
+              {faculties.map(f => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
 
         <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">Kierunek</label>
+          <Select value={fieldOfStudyId || '__all__'} onValueChange={v => {
+            setFieldOfStudyId(v === '__all__' ? '' : v)
+            setSpecializationId('')
+          }}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Wszystkie kierunki</SelectItem>
+              {fields.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {specs.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground">Specjalność</label>
+            <Select value={specializationId || '__all__'} onValueChange={v => setSpecializationId(v === '__all__' ? '' : v)}>
+              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie specjalności</SelectItem>
+                {specs.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-muted-foreground">Tryb studiów</label>
           <Select value={studyMode} onValueChange={v => setStudyMode(v as StudyMode)}>
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
               <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">Semestr</label>
+          <Select value={semester || '__all__'} onValueChange={v => setSemester(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Wszystkie</SelectItem>
+              {availableSemesters.map(s => (
+                <SelectItem key={s} value={String(s)}>Semestr {s}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -1432,6 +1851,8 @@ export function SchedulePage() {
           academicYear={academicYear}
           semester={semester ? parseInt(semester) : (availableSemesters[0] ?? 1)}
           studyMode={studyMode}
+          fieldOfStudyId={fieldOfStudyId || undefined}
+          specializationId={specializationId || undefined}
         />
       )}
 
@@ -1439,6 +1860,9 @@ export function SchedulePage() {
         <CalendarTab
           academicYear={academicYear}
           studyMode={studyMode}
+          semester={semester ? parseInt(semester) : undefined}
+          fieldOfStudyId={fieldOfStudyId || undefined}
+          specializationId={specializationId || undefined}
         />
       )}
     </div>

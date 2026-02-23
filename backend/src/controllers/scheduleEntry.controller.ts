@@ -178,6 +178,23 @@ export const remove = async (req: Request, res: Response) => {
   }
 }
 
+export const removeMany = async (req: Request, res: Response) => {
+  try {
+    const { from, to, studentGroupId, instructorId } = req.query
+    const { count } = await prisma.scheduleEntry.deleteMany({
+      where: {
+        ...(from ? { date: { gte: new Date(String(from)) } } : {}),
+        ...(to ? { date: { lte: new Date(String(to)) } } : {}),
+        ...(studentGroupId ? { studentGroupId: String(studentGroupId) } : {}),
+        ...(instructorId ? { instructorId: String(instructorId) } : {}),
+      },
+    })
+    res.json({ data: { deleted: count } })
+  } catch (error) {
+    res.status(500).json({ error: 'Błąd serwera', details: error })
+  }
+}
+
 export const move = async (req: Request, res: Response) => {
   try {
     const { newDate, newStartTime, newEndTime, newRoomId, newInstructorId, scope } = req.body as {

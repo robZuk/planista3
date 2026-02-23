@@ -5,6 +5,7 @@ import {
   create as createTemplate,
   update as updateTemplate,
   remove as removeTemplate,
+  removeMany as removeManyTemplates,
   getSummary,
 } from '../controllers/scheduleTemplate.controller'
 import {
@@ -13,6 +14,7 @@ import {
   create as createEntry,
   update as updateEntry,
   remove as removeEntry,
+  removeMany as removeManyEntries,
   move as moveEntry,
 } from '../controllers/scheduleEntry.controller'
 import {
@@ -34,6 +36,7 @@ router.get('/summary/:curriculumVersionId', authenticate, getSummary)
 router.get('/templates/:id', authenticate, getTemplate)
 router.post('/templates', authenticate, authorize('ADMIN', 'INSTRUCTOR'), createTemplate)
 router.put('/templates/:id', authenticate, authorize('ADMIN', 'INSTRUCTOR'), updateTemplate)
+router.delete('/templates', authenticate, authorize('ADMIN'), removeManyTemplates)
 router.delete('/templates/:id', authenticate, authorize('ADMIN'), removeTemplate)
 
 // ─── Generator ────────────────────────────────────────────────
@@ -45,6 +48,7 @@ router.get('/entries', authenticate, getEntries)
 router.get('/entries/:id', authenticate, getEntry)
 router.post('/entries', authenticate, authorize('ADMIN', 'INSTRUCTOR'), createEntry)
 router.put('/entries/:id', authenticate, authorize('ADMIN', 'INSTRUCTOR'), updateEntry)
+router.delete('/entries', authenticate, authorize('ADMIN'), removeManyEntries)
 router.delete('/entries/:id', authenticate, authorize('ADMIN'), removeEntry)
 router.post('/entries/:id/move', authenticate, authorize('ADMIN', 'INSTRUCTOR'), moveEntry)
 

@@ -162,6 +162,22 @@ export const remove = async (req: Request, res: Response) => {
   }
 }
 
+export const removeMany = async (req: Request, res: Response) => {
+  try {
+    const { semester, academicYear, studyMode } = req.query
+    const { count } = await prisma.scheduleTemplate.deleteMany({
+      where: {
+        ...(semester ? { semester: Number(semester) } : {}),
+        ...(academicYear ? { academicYear: String(academicYear) } : {}),
+        ...(studyMode ? { studyMode: studyMode as 'FULL_TIME' | 'PART_TIME' } : {}),
+      },
+    })
+    res.json({ data: { deleted: count } })
+  } catch (error) {
+    res.status(500).json({ error: 'Błąd serwera', details: error })
+  }
+}
+
 export const getSummary = async (req: Request, res: Response) => {
   try {
     const { curriculumVersionId } = req.params
