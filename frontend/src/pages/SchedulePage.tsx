@@ -28,7 +28,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type {
   ScheduleTemplate, ScheduleEntry,
-  ClassType, DayOfWeek, StudyMode, CurriculumVersion, SemesterEntries,
+  ClassType, DayOfWeek, StudyMode, SemesterEntries,
 } from '@/types'
 
 // ─── Stałe ────────────────────────────────────────────────────
@@ -332,7 +332,6 @@ function AddTemplateDialog({
 
   const versions = versionsData?.data.data ?? []
   const semestersData = entriesData?.data.data
-  const entries: CurriculumVersion[] = []
   const semEntries: SemesterEntries[] = semestersData?.semesters ?? []
   const curriculumEntries = semEntries.flatMap(s => s.entries)
 
@@ -366,8 +365,6 @@ function AddTemplateDialog({
       setError(msg)
     },
   })
-
-  void entries // suppress unused warning
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -1205,8 +1202,6 @@ function CalendarTab({
     if (currentDate === targetDate && draggedEntry.startTime === newStart) return
 
     setMoveState({ entry: draggedEntry, targetDay, targetSlot: slotTime })
-    // Store target in state for the move dialog
-    void { targetDate, newStart, newEnd }
   }
 
   const totalSlotsHeight = SLOTS.length * SLOT_HEIGHT
