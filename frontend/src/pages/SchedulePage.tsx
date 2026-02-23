@@ -295,7 +295,7 @@ function AddTemplateDialog({
     academicHours: '2',
     roomId: '',
     instructorId: '',
-    studentGroupId: '',
+    studentGroupId: '__none__',
     dayOfWeek: prefill?.dayOfWeek ?? 'MONDAY',
     startTime: prefill?.startTime ?? '08:00',
     endTime: prefill?.startTime ? minsToTime(timeToMins(prefill.startTime) + 90) : '09:30',
@@ -349,7 +349,7 @@ function AddTemplateDialog({
       academicHours: Number(form.academicHours),
       roomId: form.roomId,
       instructorId: form.instructorId,
-      studentGroupId: form.studentGroupId || undefined,
+      studentGroupId: form.studentGroupId !== '__none__' ? form.studentGroupId : undefined,
       dayOfWeek: form.dayOfWeek,
       startTime: form.startTime,
       endTime: form.endTime,
@@ -492,7 +492,7 @@ function AddTemplateDialog({
               <Select value={form.studentGroupId} onValueChange={v => setForm(f => ({ ...f, studentGroupId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Brak / wszystkie" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Brak</SelectItem>
+                  <SelectItem value="__none__">Brak</SelectItem>
                   {groups.map(g => (
                     <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
                   ))}
@@ -1124,8 +1124,8 @@ function CalendarTab({
 }) {
   const days = studyMode === 'FULL_TIME' ? DAYS_FULL : DAYS_PART
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
-  const [filterGroupId, setFilterGroupId] = useState('')
-  const [filterInstructorId, setFilterInstructorId] = useState('')
+  const [filterGroupId, setFilterGroupId] = useState('__all__')
+  const [filterInstructorId, setFilterInstructorId] = useState('__all__')
   const [selectedEntry, setSelectedEntry] = useState<ScheduleEntry | null>(null)
   const [moveState, setMoveState] = useState<{
     entry: ScheduleEntry
@@ -1144,8 +1144,8 @@ function CalendarTab({
     queryFn: () => scheduleApi.getEntries({
       from: fromStr,
       to: toStr,
-      studentGroupId: filterGroupId || undefined,
-      instructorId: filterInstructorId || undefined,
+      studentGroupId: filterGroupId !== '__all__' ? filterGroupId : undefined,
+      instructorId: filterInstructorId !== '__all__' ? filterInstructorId : undefined,
     }),
   })
 
@@ -1242,7 +1242,7 @@ function CalendarTab({
             <SelectValue placeholder="Wszystkie grupy" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Wszystkie grupy</SelectItem>
+            <SelectItem value="__all__">Wszystkie grupy</SelectItem>
             {groups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
           </SelectContent>
         </Select>
@@ -1252,7 +1252,7 @@ function CalendarTab({
             <SelectValue placeholder="Wszyscy prowadzący" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Wszyscy prowadzący</SelectItem>
+            <SelectItem value="__all__">Wszyscy prowadzący</SelectItem>
             {instructors.map(i => (
               <SelectItem key={i.id} value={i.id}>{i.firstName} {i.lastName}</SelectItem>
             ))}
