@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, ChevronDown, ChevronRight, Pencil, Trash2, Building2 } from 'lucide-react'
 import { buildingsApi } from '@/api/buildings'
@@ -133,6 +133,13 @@ function RoomDialog({
       ? { number: room.number, type: room.type, capacity: String(room.capacity) }
       : EMPTY_ROOM
   )
+
+  useEffect(() => {
+    setForm(room
+      ? { number: room.number, type: room.type, capacity: String(room.capacity) }
+      : EMPTY_ROOM
+    )
+  }, [room, open])
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>

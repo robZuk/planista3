@@ -51,11 +51,12 @@ export const scheduleApi = {
 
   // ─── Generator ────────────────────────────────────────────
   generateTemplate: (params: {
-    fieldOfStudyId: string
+    facultyId?: string
+    fieldOfStudyId?: string
     specializationId?: string
-    semester: number
+    semester?: number
     academicYear: string
-    studyMode: StudyMode
+    studyMode?: StudyMode
   }) => client.post<{ data: object[]; meta: { total: number } }>('/schedule/generate-template', params),
 
   generateSemester: (data: { templateIds: string[]; calendarId: string }) =>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -17,6 +17,7 @@ import { groupsApi } from '@/api/groups'
 import { curriculumApi } from '@/api/curriculum'
 import { facultiesApi, fieldsApi, specsApi } from '@/api/faculties'
 import { useAcademicYearStore, SEMESTER_TYPE_NUMBERS } from '@/store/academicYearStore'
+import { Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -62,7 +63,57 @@ const CLASS_LABELS: Record<ClassType, string> = {
 
 const WEEK_TYPE_LABELS = { EVERY: 'Co tydzień', EVEN: 'Parzyste', ODD: 'Nieparzyste' }
 
-const SLOT_HEIGHT = 20   // px per 15 min
+const CLASS_FULL_LABELS: Record<string, string> = {
+  LECTURE: 'Wykład', EXERCISE: 'Ćwiczenia', LAB: 'Laboratorium', PROJECT: 'Projekt', SEMINAR: 'Seminarium',
+}
+const ROOM_TYPE_LABELS: Record<string, string> = {
+  LECTURE: 'wykładowa', EXERCISE: 'ćwiczeniowa', LAB: 'laboratoryjna',
+  COMPUTER_LAB: 'komputerowa', SEMINAR: 'seminaryjna', SPORTS: 'sportowa',
+}
+const DAY_SHORT: Record<string, string> = {
+  MONDAY: 'pon', TUESDAY: 'wt', WEDNESDAY: 'śr', THURSDAY: 'czw',
+  FRIDAY: 'pt', SATURDAY: 'sob', SUNDAY: 'nd',
+}
+
+function formatApiError(code: string, details?: Record<string, unknown>): string {
+  switch (code) {
+    case 'HOURS_EXCEEDED': {
+      const d = details as { classType?: string; limit?: number; alreadyPlanned?: number; requested?: number; remaining?: number } | undefined
+      const type = d?.classType ? (CLASS_FULL_LABELS[d.classType] ?? d.classType) : ''
+      if ((d?.limit ?? 0) === 0) {
+        return `Przedmiot nie ma godzin ${type ? `"${type}"` : 'tego typu'} w siatce — wybierz inny typ zajęć`
+      }
+      return `Przekroczono limit godzin${type ? ` (${type})` : ''} — zaplanowano już ${d?.alreadyPlanned ?? '?'}h z wymaganych ${d?.limit ?? '?'}h (pozostało ${d?.remaining ?? '?'}h, żądano ${d?.requested ?? '?'}h)`
+    }
+    case 'WRONG_ROOM_TYPE': {
+      const d = details as { roomType?: string; classType?: string; allowed?: string[] } | undefined
+      const roomType = d?.roomType ? (ROOM_TYPE_LABELS[d.roomType] ?? d.roomType) : '?'
+      const classType = d?.classType ? (CLASS_FULL_LABELS[d.classType] ?? d.classType) : '?'
+      const allowed = d?.allowed?.map(t => ROOM_TYPE_LABELS[t] ?? t).join(', ') ?? '?'
+      return `Zły typ sali (${roomType}) — dla zajęć "${classType}" wymagana: ${allowed}`
+    }
+    case 'ROOM_CONFLICT': {
+      const d = details as { dayOfWeek?: string; date?: string; startTime?: string; endTime?: string } | undefined
+      const when = d?.dayOfWeek ? (DAY_SHORT[d.dayOfWeek] ?? d.dayOfWeek) : (d?.date ? new Date(d.date).toLocaleDateString('pl-PL') : '?')
+      return `Sala zajęta: ${when} ${d?.startTime ?? ''}–${d?.endTime ?? ''}`
+    }
+    case 'INSTRUCTOR_CONFLICT': {
+      const d = details as { dayOfWeek?: string; date?: string; startTime?: string; endTime?: string } | undefined
+      const when = d?.dayOfWeek ? (DAY_SHORT[d.dayOfWeek] ?? d.dayOfWeek) : (d?.date ? new Date(d.date).toLocaleDateString('pl-PL') : '?')
+      return `Prowadzący zajęty: ${when} ${d?.startTime ?? ''}–${d?.endTime ?? ''}`
+    }
+    case 'GROUP_CONFLICT': {
+      const d = details as { date?: string; startTime?: string; endTime?: string } | undefined
+      const when = d?.date ? new Date(d.date).toLocaleDateString('pl-PL') : '?'
+      return `Grupa zajęta: ${when} ${d?.startTime ?? ''}–${d?.endTime ?? ''}`
+    }
+    default:
+      return code
+  }
+}
+
+const SLOT_MINS   = 5    // minut na jeden slot
+const SLOT_HEIGHT = 7    // px per 5 min → 84 px/h (≈ poprzednie 80 px/h)
 const START_HOUR  = 7
 const END_HOUR    = 20
 const START_MINS  = START_HOUR * 60
@@ -70,10 +121,9 @@ const START_MINS  = START_HOUR * 60
 function generateSlots(): string[] {
   const slots: string[] = []
   for (let h = START_HOUR; h < END_HOUR; h++) {
-    slots.push(`${String(h).padStart(2, '0')}:00`)
-    slots.push(`${String(h).padStart(2, '0')}:15`)
-    slots.push(`${String(h).padStart(2, '0')}:30`)
-    slots.push(`${String(h).padStart(2, '0')}:45`)
+    for (let m = 0; m < 60; m += SLOT_MINS) {
+      slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
+    }
   }
   return slots
 }
@@ -99,8 +149,8 @@ function blockStyle(startTime: string, academicHours: number): React.CSSProperti
   const totalMins = academicHours * SLOT_UNIT
   return {
     position: 'absolute',
-    top: (start / 15) * SLOT_HEIGHT,
-    height: (totalMins / 15) * SLOT_HEIGHT - 2,
+    top: (start / SLOT_MINS) * SLOT_HEIGHT,
+    height: (totalMins / SLOT_MINS) * SLOT_HEIGHT - 2,
     left: 4, right: 4,
     display: 'flex',
     flexDirection: 'column',
@@ -160,9 +210,6 @@ function DraggableTemplateBlock({
     cursor: 'grab',
   }
 
-  const hourPx = (ACADEMIC_HOUR_MINS / 15) * SLOT_HEIGHT  // 45 min w pikselach
-  const breakPx = (BREAK_MINS / 15) * SLOT_HEIGHT          // 15 min w pikselach
-
   return (
     <div
       ref={setNodeRef}
@@ -170,29 +217,29 @@ function DraggableTemplateBlock({
       {...listeners}
       {...attributes}
       onClick={(e) => { e.stopPropagation(); onClick() }}
-      className={`rounded border-l-4 text-xs overflow-hidden transition-opacity ${CLASS_COLORS[template.classType]}`}
+      className={`group rounded border-l-4 text-xs overflow-hidden transition-opacity ${CLASS_COLORS[template.classType]}`}
     >
-      {Array.from({ length: template.academicHours }, (_, i) => (
-        <div key={i} className="flex flex-col shrink-0">
-          <div style={{ height: hourPx }} className="px-2 py-1 overflow-hidden">
-            {i === 0 && (
-              <>
-                <p className="font-semibold truncate leading-tight">{template.curriculumEntry.subject.name}</p>
-                <p className="truncate opacity-70">
-                  {CLASS_LABELS[template.classType]} · {template.room.number} · {WEEK_TYPE_LABELS[template.weekType]}
-                </p>
-                <p className="truncate opacity-60">{template.startTime}–{template.endTime}</p>
-                <p className="truncate opacity-60">
-                  {template.instructor.title ? `${template.instructor.title} ` : ''}{template.instructor.lastName}
-                </p>
-              </>
-            )}
-          </div>
-          <div style={{ height: breakPx }} className="shrink-0 border-t border-dashed border-current/40 px-2 flex items-center opacity-50">
-            <span className="text-[9px]">przerwa 15'</span>
-          </div>
-        </div>
-      ))}
+      <div className="px-2 py-1 overflow-hidden h-full relative">
+        <button
+          className="absolute top-0.5 right-0.5 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/20 dark:hover:bg-white/20 transition-opacity z-10"
+          onPointerDown={e => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onClick() }}
+          title="Edytuj wzorzec"
+        >
+          <Pencil className="w-3 h-3" />
+        </button>
+        <p className="font-semibold truncate leading-tight pr-4">{template.curriculumEntry.subject.name}</p>
+        <p className="truncate opacity-70">
+          {CLASS_LABELS[template.classType]} · {template.room.number} · {WEEK_TYPE_LABELS[template.weekType]}
+        </p>
+        <p className="truncate opacity-60">{template.startTime}–{template.endTime}</p>
+        <p className="truncate opacity-60">
+          {template.instructor.title ? `${template.instructor.title} ` : ''}{template.instructor.lastName}
+        </p>
+        {template.studentGroup && (
+          <p className="truncate opacity-60">{template.studentGroup.name}</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -219,42 +266,37 @@ function DraggableEntryBlock({
     cursor: isCancelled ? 'default' : 'grab',
   }
 
-  const hourPx = (ACADEMIC_HOUR_MINS / 15) * SLOT_HEIGHT
-  const breakPx = (BREAK_MINS / 15) * SLOT_HEIGHT
-
   return (
     <div
       ref={setNodeRef}
       style={{ ...blockStyle(entry.startTime, entry.academicHours), ...{ transform: style.transform, opacity: style.opacity, zIndex: style.zIndex, cursor: style.cursor } }}
       {...(isCancelled ? {} : { ...listeners, ...attributes })}
       onClick={(e) => { e.stopPropagation(); onClick() }}
-      className={`rounded border-l-4 text-xs overflow-hidden transition-opacity ${CLASS_COLORS[entry.classType]} ${isCancelled ? 'opacity-50' : ''}`}
+      className={`group rounded border-l-4 text-xs overflow-hidden transition-opacity ${CLASS_COLORS[entry.classType]} ${isCancelled ? 'opacity-50' : ''}`}
     >
-      {Array.from({ length: entry.academicHours }, (_, i) => (
-        <div key={i} className="flex flex-col shrink-0">
-          <div style={{ height: hourPx }} className="px-2 py-1 overflow-hidden">
-            {i === 0 && (
-              <>
-                <p className={`font-semibold truncate leading-tight ${isCancelled ? 'line-through' : ''}`}>{entry.curriculumEntry.subject.name}</p>
-                <p className="truncate opacity-70">
-                  {CLASS_LABELS[entry.classType]} · {entry.room.number}
-                  {entry.status === 'CANCELLED' && ' · Odwołane'}
-                  {entry.status === 'MAKEUP' && ' · Odrobienie'}
-                </p>
-                <p className="truncate opacity-60">{entry.startTime}–{entry.endTime}</p>
-                <p className="truncate opacity-60">
-                  {entry.instructor.title ? `${entry.instructor.title} ` : ''}{entry.instructor.lastName}
-                </p>
-              </>
-            )}
-          </div>
-          {!isCancelled && (
-            <div style={{ height: breakPx }} className="shrink-0 border-t border-dashed border-current/40 px-2 flex items-center opacity-50">
-              <span className="text-[9px]">przerwa 15'</span>
-            </div>
-          )}
-        </div>
-      ))}
+      <div className="px-2 py-1 overflow-hidden h-full relative">
+        <button
+          className="absolute top-0.5 right-0.5 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-black/20 dark:hover:bg-white/20 transition-opacity z-10"
+          onPointerDown={e => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onClick() }}
+          title="Szczegóły / edycja"
+        >
+          <Pencil className="w-3 h-3" />
+        </button>
+        <p className={`font-semibold truncate leading-tight pr-4 ${isCancelled ? 'line-through' : ''}`}>{entry.curriculumEntry.subject.name}</p>
+        <p className="truncate opacity-70">
+          {CLASS_LABELS[entry.classType]} · {entry.room.number}
+          {entry.status === 'CANCELLED' && ' · Odwołane'}
+          {entry.status === 'MAKEUP' && ' · Odrobienie'}
+        </p>
+        <p className="truncate opacity-60">{entry.startTime}–{entry.endTime}</p>
+        <p className="truncate opacity-60">
+          {entry.instructor.title ? `${entry.instructor.title} ` : ''}{entry.instructor.lastName}
+        </p>
+        {entry.studentGroup && (
+          <p className="truncate opacity-60">{entry.studentGroup.name}</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -265,18 +307,20 @@ function DroppableSlot({
   id,
   children,
   onClick,
+  top,
 }: {
   id: string
   children?: React.ReactNode
   onClick?: () => void
+  top: number
 }) {
   const { setNodeRef, isOver } = useDroppable({ id })
   return (
     <div
       ref={setNodeRef}
       onClick={onClick}
-      className={`absolute w-full transition-colors ${isOver ? 'bg-green-500/20' : ''}`}
-      style={{ height: SLOT_HEIGHT }}
+      className="absolute w-full"
+      style={{ height: SLOT_HEIGHT, top }}
     >
       {children}
     </div>
@@ -292,7 +336,6 @@ function TimeColumn() {
       <div style={{ height: SLOTS.length * SLOT_HEIGHT }} className="relative">
         {SLOTS.map((slot, i) => {
           const isHour = slot.endsWith(':00')
-          const isHalf = slot.endsWith(':30')
           return (
             <div
               key={slot}
@@ -301,9 +344,6 @@ function TimeColumn() {
             >
               {isHour && (
                 <span className="text-[10px] text-muted-foreground leading-none">{slot}</span>
-              )}
-              {isHalf && (
-                <span className="text-[9px] text-muted-foreground/50 leading-none">{slot}</span>
               )}
             </div>
           )
@@ -315,18 +355,40 @@ function TimeColumn() {
 
 // ─── Dialog dodawania szablonu ────────────────────────────────
 
+// Extended Specialization type including fieldOfStudy→faculty chain (returned by backend)
+type SpecWithChain = {
+  id: string
+  name: string
+  shortName: string
+  fieldOfStudyId: string
+  fieldOfStudy?: {
+    id: string
+    name: string
+    shortName: string
+    facultyId: string
+    faculty?: { id: string; name: string; shortName: string }
+  }
+}
+
+// Room types allowed per class type
+const ROOM_TYPES_FOR_CLASS: Record<string, string[]> = {
+  LECTURE:  ['LECTURE'],
+  EXERCISE: ['EXERCISE', 'LECTURE'],
+  LAB:      ['LAB', 'COMPUTER_LAB'],
+  PROJECT:  ['EXERCISE', 'COMPUTER_LAB', 'SEMINAR'],
+  SEMINAR:  ['SEMINAR', 'EXERCISE'],
+}
+
 type AddTemplateForm = {
-  curriculumVersionId: string
   curriculumEntryId: string
   classType: string
   academicHours: string
-  roomId: string
-  instructorId: string
-  studentGroupId: string
   dayOfWeek: string
+  weekType: string
   startTime: string
   endTime: string
-  weekType: string
+  roomId: string
+  instructorId: string
 }
 
 function AddTemplateDialog({
@@ -347,60 +409,169 @@ function AddTemplateDialog({
   onSuccess: () => void
 }) {
   const qc = useQueryClient()
-  const [form, setForm] = useState<AddTemplateForm>({
-    curriculumVersionId: '',
+
+  // ── Filter state (cascade) ────────────────────────────────────
+  const [facultyId,      setFacultyId]      = useState('')
+  const [fieldId,        setFieldId]        = useState('')
+  const [specId,         setSpecId]         = useState('')
+  const [effectiveMode,  setEffectiveMode]  = useState<string>(studyMode ?? 'FULL_TIME')
+  const [groupId,        setGroupId]        = useState('')
+
+  // ── Form state ────────────────────────────────────────────────
+  const emptyForm = (): AddTemplateForm => ({
     curriculumEntryId: '',
-    classType: 'LECTURE',
+    classType: '',
     academicHours: '2',
-    roomId: '',
-    instructorId: '',
-    studentGroupId: '__none__',
     dayOfWeek: prefill?.dayOfWeek ?? 'MONDAY',
     startTime: prefill?.startTime ?? '08:00',
     endTime: prefill?.startTime ? minsToTime(timeToMins(prefill.startTime) + 90) : '09:30',
     weekType: 'EVERY',
+    roomId: '',
+    instructorId: '',
   })
+  const [form, setForm] = useState<AddTemplateForm>(emptyForm)
   const [error, setError] = useState('')
 
+  // Reset everything when dialog opens
+  useEffect(() => {
+    if (!open) return
+    setFacultyId(''); setFieldId(''); setSpecId('')
+    setEffectiveMode(studyMode ?? 'FULL_TIME')
+    setGroupId('')
+    setForm(emptyForm())
+    setError('')
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Queries ───────────────────────────────────────────────────
+  const { data: facultiesData } = useQuery({
+    queryKey: ['faculties'],
+    queryFn:  () => facultiesApi.getAll(),
+    enabled: open,
+  })
+  const { data: allSpecsData } = useQuery({
+    queryKey: ['specializations-all'],
+    queryFn:  () => specsApi.getAll(),
+    enabled: open,
+  })
   const { data: versionsData } = useQuery({
     queryKey: ['curriculum-versions'],
-    queryFn: () => curriculumApi.getVersions(),
+    queryFn:  () => curriculumApi.getVersions(),
     enabled: open,
   })
-
-  const { data: entriesData } = useQuery({
-    queryKey: ['curriculum-entries', form.curriculumVersionId, semester],
-    queryFn: () => curriculumApi.getEntries(form.curriculumVersionId, semester),
-    enabled: open && !!form.curriculumVersionId,
-  })
-
-  const { data: buildingsData } = useQuery({
-    queryKey: ['buildings'],
-    queryFn: () => buildingsApi.getAll(),
-    enabled: open,
-  })
-
-  const { data: instructorsData } = useQuery({
-    queryKey: ['instructors'],
-    queryFn: () => instructorsApi.getAll(),
-    enabled: open,
-  })
-
   const { data: groupsData } = useQuery({
     queryKey: ['groups', semester, academicYear],
-    queryFn: () => groupsApi.getAll({ semester, academicYear }),
+    queryFn:  () => groupsApi.getAll({ semester, academicYear }),
+    enabled: open,
+  })
+  const { data: buildingsData } = useQuery({
+    queryKey: ['buildings'],
+    queryFn:  () => buildingsApi.getAll(),
+    enabled: open,
+  })
+  const { data: instructorsData } = useQuery({
+    queryKey: ['instructors'],
+    queryFn:  () => instructorsApi.getAll(),
     enabled: open,
   })
 
-  const versions = versionsData?.data.data ?? []
-  const semestersData = entriesData?.data.data
-  const semEntries: SemesterEntries[] = semestersData?.semesters ?? []
+  // ── Derived data ──────────────────────────────────────────────
+  const faculties   = facultiesData?.data.data  ?? []
+  const allSpecs    = (allSpecsData?.data.data  ?? []) as SpecWithChain[]
+  const versions    = versionsData?.data.data   ?? []
+  const groups      = groupsData?.data.data     ?? []
+  const allRooms    = buildingsData?.data.data.flatMap(b => b.rooms.map(r => ({ ...r, buildingName: b.name }))) ?? []
+  const instructors = instructorsData?.data.data ?? []
+
+  const selectedGroup   = groups.find(g => g.id === groupId)
+  const effectiveSemester = selectedGroup?.semester ?? semester
+
+  // Cascading filter lists derived from allSpecs
+  const filteredFields = useMemo(() => {
+    const seen = new Set<string>()
+    return allSpecs
+      .filter(s => !facultyId || s.fieldOfStudy?.facultyId === facultyId)
+      .flatMap(s => s.fieldOfStudy ? [s.fieldOfStudy] : [])
+      .filter(f => { if (seen.has(f.id)) return false; seen.add(f.id); return true })
+  }, [allSpecs, facultyId])
+
+  const filteredSpecs = useMemo(() =>
+    allSpecs.filter(s => !fieldId || s.fieldOfStudy?.id === fieldId),
+    [allSpecs, fieldId]
+  )
+
+  const filteredGroups = useMemo(() =>
+    groups.filter(g => !specId || g.specializationId === specId),
+    [groups, specId]
+  )
+
+  // Active curriculum version for the selected spec + study mode
+  const activeVersion = useMemo(() =>
+    versions.find(v => v.specialization?.id === specId && v.studyMode === effectiveMode && v.isActive),
+    [versions, specId, effectiveMode]
+  )
+
+  const { data: entriesData } = useQuery({
+    queryKey: ['curriculum-entries', activeVersion?.id, effectiveSemester],
+    queryFn:  () => curriculumApi.getEntries(activeVersion!.id, effectiveSemester),
+    enabled: open && !!activeVersion?.id,
+  })
+  const semEntries: SemesterEntries[] = entriesData?.data.data?.semesters ?? []
   const curriculumEntries = semEntries.flatMap(s => s.entries)
 
-  const allRooms = buildingsData?.data.data.flatMap(b => b.rooms.map(r => ({ ...r, buildingName: b.name }))) ?? []
-  const instructors = instructorsData?.data.data ?? []
-  const groups = groupsData?.data.data ?? []
+  // Class types available for the selected curriculum entry (those with hours > 0)
+  const selectedEntry = curriculumEntries.find(e => e.id === form.curriculumEntryId)
+  const availableClassTypes = useMemo((): ClassType[] => {
+    if (!selectedEntry) return ['LECTURE', 'EXERCISE', 'LAB', 'PROJECT', 'SEMINAR']
+    return (['LECTURE', 'EXERCISE', 'LAB', 'PROJECT', 'SEMINAR'] as ClassType[]).filter(t => {
+      const key = { LECTURE: 'hoursLecture', EXERCISE: 'hoursExercise', LAB: 'hoursLab', PROJECT: 'hoursProject', SEMINAR: 'hoursSeminar' }[t]
+      return (selectedEntry as unknown as Record<string, number>)[key] > 0
+    })
+  }, [selectedEntry])
 
+  // Rooms filtered by class type
+  const filteredRooms = useMemo(() => {
+    const allowed = form.classType ? (ROOM_TYPES_FOR_CLASS[form.classType] ?? null) : null
+    return allowed ? allRooms.filter(r => allowed.includes(r.type)) : allRooms
+  }, [allRooms, form.classType])
+
+  // Days filtered by study mode
+  const days = effectiveMode === 'PART_TIME' ? DAYS_PART : DAYS_FULL
+
+  // ── Handlers ──────────────────────────────────────────────────
+  const handleGroupSelect = (gId: string) => {
+    const g = groups.find(x => x.id === gId)
+    if (!g) { setGroupId(''); return }
+    setGroupId(gId)
+
+    // Auto-fill filter cascade from group's specialization chain
+    if (g.specializationId) {
+      const spec = allSpecs.find(s => s.id === g.specializationId)
+      if (spec) {
+        setSpecId(g.specializationId)
+        setFieldId(spec.fieldOfStudy?.id ?? g.fieldOfStudyId)
+        setFacultyId(spec.fieldOfStudy?.facultyId ?? '')
+      }
+    } else {
+      setFieldId(g.fieldOfStudyId)
+    }
+
+    // Auto-suggest class type from group type
+    const classType = g.type as string
+
+    // Auto-suggest room: prefer group's preferredRoomId, else first room matching class type
+    let autoRoomId = ''
+    if (g.preferredRoomId) {
+      autoRoomId = g.preferredRoomId
+    } else {
+      const allowed = ROOM_TYPES_FOR_CLASS[classType] ?? []
+      const match = allRooms.find(r => allowed.includes(r.type))
+      autoRoomId = match?.id ?? ''
+    }
+
+    setForm(f => ({ ...f, classType, curriculumEntryId: '', roomId: autoRoomId }))
+  }
+
+  // ── Mutation ──────────────────────────────────────────────────
   const mutation = useMutation({
     mutationFn: () => scheduleApi.createTemplate({
       curriculumEntryId: form.curriculumEntryId,
@@ -408,14 +579,14 @@ function AddTemplateDialog({
       academicHours: Number(form.academicHours),
       roomId: form.roomId,
       instructorId: form.instructorId,
-      studentGroupId: form.studentGroupId !== '__none__' ? form.studentGroupId : undefined,
+      studentGroupId: groupId || undefined,
       dayOfWeek: form.dayOfWeek,
       startTime: form.startTime,
       endTime: form.endTime,
-      semester,
+      semester: effectiveSemester,
       academicYear,
       weekType: form.weekType,
-      studyMode,
+      studyMode: effectiveMode as StudyMode,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['templates'] })
@@ -423,39 +594,124 @@ function AddTemplateDialog({
       onClose()
     },
     onError: (e: unknown) => {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Błąd'
-      setError(msg)
+      const data = (e as { response?: { data?: { error?: string; details?: Record<string, unknown> } } })?.response?.data
+      setError(data?.error ? formatApiError(data.error, data.details) : 'Błąd zapisu — spróbuj ponownie')
     },
   })
 
+  const canSubmit = !!groupId && !!form.curriculumEntryId && !!form.classType && !!form.roomId && !!form.instructorId
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Dodaj zajęcia do wzorca</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 py-2">
+        <div className="space-y-4 py-2">
           {error && <p className="text-sm text-destructive">{error}</p>}
 
+          {/* ── Sekcja 1: Zawężenie (kaskadowe filtry) ── */}
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Zawężenie</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Wydział</Label>
+                <Select value={facultyId} onValueChange={v => {
+                  setFacultyId(v); setFieldId(''); setSpecId(''); setGroupId('')
+                  setForm(f => ({ ...f, curriculumEntryId: '', classType: '', roomId: '' }))
+                }}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Wszystkie" /></SelectTrigger>
+                  <SelectContent>
+                    {faculties.map(f => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Tryb</Label>
+                <Select value={effectiveMode} onValueChange={v => {
+                  setEffectiveMode(v); setGroupId('')
+                  setForm(f => ({ ...f, curriculumEntryId: '', dayOfWeek: v === 'PART_TIME' ? 'FRIDAY' : 'MONDAY' }))
+                }}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
+                    <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Kierunek</Label>
+                <Select value={fieldId} onValueChange={v => {
+                  setFieldId(v); setSpecId(''); setGroupId('')
+                  setForm(f => ({ ...f, curriculumEntryId: '', classType: '', roomId: '' }))
+                }}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Wszystkie" /></SelectTrigger>
+                  <SelectContent>
+                    {filteredFields.map(f => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Specjalność</Label>
+                <Select value={specId} onValueChange={v => {
+                  setSpecId(v); setGroupId('')
+                  setForm(f => ({ ...f, curriculumEntryId: '', classType: '', roomId: '' }))
+                }}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Wszystkie" /></SelectTrigger>
+                  <SelectContent>
+                    {filteredSpecs.map(s => <SelectItem key={s.id} value={s.id}>{s.shortName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Sekcja 2: Grupa (obowiązkowa, auto-wypełnia filtry) ── */}
+          <div className="space-y-1">
+            <Label>Grupa <span className="text-destructive">*</span></Label>
+            <Select value={groupId} onValueChange={handleGroupSelect}>
+              <SelectTrigger><SelectValue placeholder="Wybierz grupę" /></SelectTrigger>
+              <SelectContent>
+                {filteredGroups.length === 0
+                  ? <div className="px-2 py-1.5 text-xs text-muted-foreground">Brak grup dla wybranych filtrów</div>
+                  : filteredGroups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)
+                }
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* ── Sekcja 3: Przedmiot + szczegóły zajęć ── */}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2 space-y-1">
-              <Label>Plan nauczania</Label>
-              <Select value={form.curriculumVersionId} onValueChange={v => setForm(f => ({ ...f, curriculumVersionId: v, curriculumEntryId: '' }))}>
-                <SelectTrigger><SelectValue placeholder="Wybierz wersję" /></SelectTrigger>
-                <SelectContent>
-                  {versions.map(v => (
-                    <SelectItem key={v.id} value={v.id}>
-                      {v.specialization?.shortName} {v.academicYear} {v.studyMode === 'FULL_TIME' ? 'St.' : 'Nst.'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="col-span-2 space-y-1">
-              <Label>Przedmiot</Label>
-              <Select value={form.curriculumEntryId} onValueChange={v => setForm(f => ({ ...f, curriculumEntryId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Wybierz przedmiot" /></SelectTrigger>
+              <Label>Przedmiot <span className="text-destructive">*</span></Label>
+              <Select
+                value={form.curriculumEntryId}
+                onValueChange={v => {
+                  // When entry changes, reset classType if no longer valid (has no hours for that type)
+                  const entry = curriculumEntries.find(e => e.id === v)
+                  const hoursMap: Record<ClassType, number> = {
+                    LECTURE: entry?.hoursLecture ?? 0, EXERCISE: entry?.hoursExercise ?? 0,
+                    LAB: entry?.hoursLab ?? 0, PROJECT: entry?.hoursProject ?? 0, SEMINAR: entry?.hoursSeminar ?? 0,
+                  }
+                  setForm(f => ({
+                    ...f,
+                    curriculumEntryId: v,
+                    classType: f.classType && hoursMap[f.classType as ClassType] > 0 ? f.classType : '',
+                    roomId: '',
+                  }))
+                }}
+                disabled={!activeVersion}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={
+                    !specId ? 'Najpierw wybierz grupę' :
+                    !activeVersion ? 'Brak aktywnego planu dla trybu' :
+                    'Wybierz przedmiot'
+                  } />
+                </SelectTrigger>
                 <SelectContent>
                   {curriculumEntries.map(e => (
                     <SelectItem key={e.id} value={e.id}>{e.subject.name}</SelectItem>
@@ -465,13 +721,16 @@ function AddTemplateDialog({
             </div>
 
             <div className="space-y-1">
-              <Label>Typ zajęć</Label>
-              <Select value={form.classType} onValueChange={v => setForm(f => ({ ...f, classType: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>Typ zajęć <span className="text-destructive">*</span></Label>
+              <Select value={form.classType} onValueChange={v => setForm(f => ({ ...f, classType: v, roomId: '' }))}>
+                <SelectTrigger><SelectValue placeholder="Wybierz typ" /></SelectTrigger>
                 <SelectContent>
-                  {(['LECTURE','EXERCISE','LAB','PROJECT','SEMINAR'] as ClassType[]).map(t => (
+                  {availableClassTypes.map(t => (
                     <SelectItem key={t} value={t}>{CLASS_LABELS[t]} – {t}</SelectItem>
                   ))}
+                  {availableClassTypes.length === 0 && (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">Brak typów zajęć dla tego przedmiotu</div>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -487,9 +746,7 @@ function AddTemplateDialog({
               <Select value={form.dayOfWeek} onValueChange={v => setForm(f => ({ ...f, dayOfWeek: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {DAYS_FULL.concat(DAYS_PART.filter(d => !DAYS_FULL.find(f => f.key === d.key))).map(d => (
-                    <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>
-                  ))}
+                  {days.map(d => <SelectItem key={d.key} value={d.key}>{d.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -517,13 +774,23 @@ function AddTemplateDialog({
               <Input type="time" value={form.endTime}
                 onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} />
             </div>
+          </div>
 
-            <div className="col-span-2 space-y-1">
-              <Label>Sala</Label>
+          {/* ── Sekcja 4: Sala i prowadzący ── */}
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>
+                Sala
+                {form.classType && (
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    (filtrowana: {(ROOM_TYPES_FOR_CLASS[form.classType] ?? []).join(', ')})
+                  </span>
+                )}
+              </Label>
               <Select value={form.roomId} onValueChange={v => setForm(f => ({ ...f, roomId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Wybierz salę" /></SelectTrigger>
                 <SelectContent>
-                  {allRooms.map(r => (
+                  {filteredRooms.map(r => (
                     <SelectItem key={r.id} value={r.id}>
                       {r.number} ({r.type}, poj. {r.capacity}) – {(r as { buildingName?: string }).buildingName}
                     </SelectItem>
@@ -532,7 +799,7 @@ function AddTemplateDialog({
               </Select>
             </div>
 
-            <div className="col-span-2 space-y-1">
+            <div className="space-y-1">
               <Label>Prowadzący</Label>
               <Select value={form.instructorId} onValueChange={v => setForm(f => ({ ...f, instructorId: v }))}>
                 <SelectTrigger><SelectValue placeholder="Wybierz prowadzącego" /></SelectTrigger>
@@ -545,27 +812,11 @@ function AddTemplateDialog({
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="col-span-2 space-y-1">
-              <Label>Grupa (opcjonalnie)</Label>
-              <Select value={form.studentGroupId} onValueChange={v => setForm(f => ({ ...f, studentGroupId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Brak / wszystkie" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Brak</SelectItem>
-                  {groups.map(g => (
-                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Anuluj</Button>
-          <Button
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.curriculumEntryId || !form.roomId || !form.instructorId}
-          >
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !canSubmit}>
             {mutation.isPending ? 'Zapisywanie...' : 'Dodaj'}
           </Button>
         </DialogFooter>
@@ -595,7 +846,8 @@ function EditTemplateDialog({
     mutationFn: () => scheduleApi.updateTemplate(template.id, { weekType, startTime, endTime }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['templates'] }); onSuccess(); onClose() },
     onError: (e: unknown) => {
-      setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Błąd')
+      const data = (e as { response?: { data?: { error?: string; details?: Record<string, unknown> } } })?.response?.data
+      setError(data?.error ? formatApiError(data.error, data.details) : 'Błąd zapisu — spróbuj ponownie')
     },
   })
 
@@ -898,7 +1150,8 @@ function MoveEntryDialog({
       onClose()
     },
     onError: (e: unknown) => {
-      setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Błąd')
+      const data = (e as { response?: { data?: { error?: string; details?: Record<string, unknown> } } })?.response?.data
+      setError(data?.error ? formatApiError(data.error, data.details) : 'Błąd zapisu — spróbuj ponownie')
     },
   })
 
@@ -934,6 +1187,111 @@ function MoveEntryDialog({
   )
 }
 
+// ─── Dialog edycji wpisu ──────────────────────────────────────
+
+function EditEntryDialog({
+  entry,
+  onClose,
+  onSuccess,
+}: {
+  entry: ScheduleEntry
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const qc = useQueryClient()
+  const [date, setDate] = useState(entry.date.slice(0, 10))
+  const [startTime, setStartTime] = useState(entry.startTime)
+  const [endTime, setEndTime] = useState(entry.endTime)
+  const [roomId, setRoomId] = useState(entry.room.id)
+  const [instructorId, setInstructorId] = useState(entry.instructor.id)
+  const [error, setError] = useState('')
+
+  const { data: buildingsData } = useQuery({
+    queryKey: ['buildings'],
+    queryFn: () => buildingsApi.getAll(),
+  })
+  const { data: instructorsData } = useQuery({
+    queryKey: ['instructors'],
+    queryFn: () => instructorsApi.getAll(),
+  })
+
+  const allRooms = buildingsData?.data.data.flatMap(b => b.rooms.map(r => ({ ...r, buildingName: b.name }))) ?? []
+  const instructors = instructorsData?.data.data ?? []
+
+  const mutation = useMutation({
+    mutationFn: () => scheduleApi.updateEntry(entry.id, { date, startTime, endTime, roomId, instructorId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['entries'] })
+      onSuccess()
+      onClose()
+    },
+    onError: (e: unknown) => {
+      const data = (e as { response?: { data?: { error?: string; details?: Record<string, unknown> } } })?.response?.data
+      setError(data?.error ? formatApiError(data.error, data.details) : 'Błąd zapisu — spróbuj ponownie')
+    },
+  })
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Edytuj termin zajęć</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2 text-sm">
+          {error && <p className="text-destructive text-sm">{error}</p>}
+          <p className="font-medium">{entry.curriculumEntry.subject.name} · {CLASS_LABELS[entry.classType]}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1">
+              <Label>Data</Label>
+              <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Od</Label>
+              <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Do</Label>
+              <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <Label>Sala</Label>
+              <Select value={roomId} onValueChange={setRoomId}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {allRooms.map(r => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.number} ({r.type}, poj. {r.capacity}) – {r.buildingName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2 space-y-1">
+              <Label>Prowadzący</Label>
+              <Select value={instructorId} onValueChange={setInstructorId}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {instructors.map(i => (
+                    <SelectItem key={i.id} value={i.id}>
+                      {i.title ? `${i.title} ` : ''}{i.firstName} {i.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Anuluj</Button>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+            {mutation.isPending ? 'Zapisywanie...' : 'Zapisz'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Szczegóły wpisu ──────────────────────────────────────────
 
 function EntryDetailPanel({
@@ -943,6 +1301,7 @@ function EntryDetailPanel({
   entry: ScheduleEntry
   onClose: () => void
 }) {
+  const [showEdit, setShowEdit] = useState(false)
   const qc = useQueryClient()
   const cancelMutation = useMutation({
     mutationFn: () => scheduleApi.deleteEntry(entry.id, true),
@@ -955,6 +1314,7 @@ function EntryDetailPanel({
   })
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={onClose}>
       <div
         className="bg-card rounded-xl shadow-xl p-6 w-80 space-y-3 border border-border"
@@ -984,6 +1344,14 @@ function EntryDetailPanel({
           </p>
         </div>
         <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => setShowEdit(true)}
+          >
+            Edytuj
+          </Button>
           {entry.status === 'SCHEDULED' && (
             <Button
               variant="outline"
@@ -1007,12 +1375,22 @@ function EntryDetailPanel({
         </div>
       </div>
     </div>
+    {showEdit && (
+      <EditEntryDialog
+        entry={entry}
+        onClose={() => setShowEdit(false)}
+        onSuccess={onClose}
+      />
+    )}
+    </>
   )
 }
 
 // ─── Dialog auto-generowania wzorca ──────────────────────────
 
 type TemplateProposal = {
+  specializationId?: string
+  specializationName?: string
   curriculumEntryId: string
   subjectName: string
   classType: ClassType
@@ -1025,21 +1403,25 @@ type TemplateProposal = {
   buildingName?: string
   instructorId?: string | null
   instructorName?: string | null
+  studentGroupId?: string | null
+  studentGroupName?: string | null
   semester: number
   academicYear: string
   studyMode: StudyMode
   weekType?: string
-  warning?: string
+  warning?: string   // no slot found — proposal is unselectable
+  note?: string      // slot found but with a caveat (e.g. room smaller than group)
 }
 
 function AutoGenerateDialog({
-  open, onClose, semester, academicYear, studyMode, fieldOfStudyId, specializationId,
+  open, onClose, semester, academicYear, studyMode, facultyId, fieldOfStudyId, specializationId,
 }: {
   open: boolean
   onClose: () => void
-  semester: number
+  semester?: number
   academicYear: string
-  studyMode: StudyMode
+  studyMode?: StudyMode
+  facultyId?: string
   fieldOfStudyId?: string
   specializationId?: string
 }) {
@@ -1051,11 +1433,12 @@ function AutoGenerateDialog({
 
   const generateMutation = useMutation({
     mutationFn: () => scheduleApi.generateTemplate({
-      fieldOfStudyId: fieldOfStudyId!,
+      facultyId: facultyId || undefined,
+      fieldOfStudyId: fieldOfStudyId || undefined,
       specializationId: specializationId || undefined,
-      semester,
+      semester: semester || undefined,
       academicYear,
-      studyMode,
+      studyMode: studyMode || undefined,
     }),
     onSuccess: (res) => {
       const data = res.data.data as TemplateProposal[]
@@ -1090,6 +1473,7 @@ function AutoGenerateDialog({
           academicYear: p.academicYear,
           weekType: p.weekType ?? 'EVERY',
           studyMode: p.studyMode,
+          studentGroupId: p.studentGroupId ?? undefined,
         })
         saved++
       }
@@ -1136,13 +1520,21 @@ function AutoGenerateDialog({
               Generator dobierze wolne sloty czasowe, sale i prowadzących na podstawie siatki godzin.
             </p>
             <div className="rounded-md border p-3 text-sm space-y-1 bg-muted/30">
-              <div><span className="text-muted-foreground">Semestr:</span> <strong>{semester}</strong></div>
+              <div><span className="text-muted-foreground">Semestr:</span> <strong>{semester ?? <span className="text-muted-foreground italic">wszystkie</span>}</strong></div>
               <div><span className="text-muted-foreground">Rok akademicki:</span> <strong>{academicYear}</strong></div>
-              <div><span className="text-muted-foreground">Tryb:</span> <strong>{studyMode === 'FULL_TIME' ? 'stacjonarne' : 'niestacjonarne'}</strong></div>
-              {fieldOfStudyId
-                ? <div><span className="text-muted-foreground">Kierunek:</span> <strong>wybrany z filtrów</strong></div>
-                : <div className="text-destructive text-xs">Wybierz kierunek w filtrach głównych, aby uruchomić generator.</div>
-              }
+              <div>
+                <span className="text-muted-foreground">Tryb: </span>
+                <strong>{studyMode ? (studyMode === 'FULL_TIME' ? 'stacjonarne' : 'niestacjonarne') : <span className="text-muted-foreground italic">wszystkie</span>}</strong>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Zakres: </span>
+                <strong>
+                  {specializationId ? 'wybrana specjalność'
+                    : fieldOfStudyId ? 'wszystkie specjalności kierunku'
+                    : facultyId ? 'wszystkie specjalności wydziału'
+                    : <span className="text-destructive">wybierz co najmniej wydział</span>}
+                </strong>
+              </div>
             </div>
             {generateMutation.isError && (
               <p className="text-sm text-destructive">
@@ -1185,13 +1577,26 @@ function AutoGenerateDialog({
                         <span className="font-medium">{p.subjectName}</span>
                         <Badge variant="outline" className="text-[10px]">{CLASS_LABELS[p.classType]}</Badge>
                         <span className="text-xs text-muted-foreground">{p.academicHours}h</span>
+                        {p.specializationName && (
+                          <Badge variant="secondary" className="text-[10px]">{p.specializationName}</Badge>
+                        )}
                       </div>
                       {hasSlot ? (
                         <div className="text-xs text-muted-foreground mt-0.5">
                           {DAY_LABELS[p.dayOfWeek!]} {p.startTime}–{p.endTime} · sala {p.roomNumber} ({p.buildingName})
                           {p.instructorName && <span> · {p.instructorName}</span>}
+                          {p.studentGroupName && <span> · gr. {p.studentGroupName}</span>}
+                          {(!semester || !studyMode) && (
+                            <span className="ml-1">
+                              {!semester && <span>· sem. {p.semester}</span>}
+                              {!studyMode && <span className="ml-1">· {p.studyMode === 'FULL_TIME' ? 'St.' : 'Nst.'}</span>}
+                            </span>
+                          )}
                           {!hasInstructor && (
                             <span className="block text-yellow-600 dark:text-yellow-400 mt-0.5">Brak prowadzącego — wpis zostanie pominięty przy zapisie</span>
+                          )}
+                          {p.note && (
+                            <span className="block text-yellow-600 dark:text-yellow-400 mt-0.5">{p.note}</span>
                           )}
                         </div>
                       ) : (
@@ -1220,7 +1625,7 @@ function AutoGenerateDialog({
               <Button variant="ghost" onClick={handleClose}>Anuluj</Button>
               <Button
                 onClick={() => generateMutation.mutate()}
-                disabled={!fieldOfStudyId || generateMutation.isPending}
+                disabled={(!facultyId && !fieldOfStudyId && !specializationId) || generateMutation.isPending}
               >
                 {generateMutation.isPending ? 'Generowanie...' : 'Generuj propozycje'}
               </Button>
@@ -1242,34 +1647,131 @@ function AutoGenerateDialog({
   )
 }
 
+// ─── Helper: pozycje co 30 min bez konfliktu → ghost bloki ─────
+
+function getValidSlots(
+  occupied: Array<{ start: number; end: number }>,
+  blockMins: number,
+): Array<{ top: number; height: number }> {
+  const slots: Array<{ top: number; height: number }> = []
+  for (let s = START_MINS; s + blockMins <= END_HOUR * 60; s += 30) {
+    if (!occupied.some(o => o.start < s + blockMins && o.end > s)) {
+      slots.push({
+        top: (s - START_MINS) / SLOT_MINS * SLOT_HEIGHT,
+        height: blockMins / SLOT_MINS * SLOT_HEIGHT - 2,
+      })
+    }
+  }
+  return slots
+}
+
 // ─── Zakładka Wzorzec tygodnia ─────────────────────────────────
 
-function TemplateTab({
-  academicYear,
-  semester,
-  studyMode,
-  fieldOfStudyId,
-  specializationId,
-}: {
-  academicYear: string
-  semester: number
-  studyMode: StudyMode
-  fieldOfStudyId?: string
-  specializationId?: string
-}) {
-  const days = studyMode === 'FULL_TIME' ? DAYS_FULL : DAYS_PART
+function TemplateTab({ academicYear }: { academicYear: string }) {
+  const { semesterType } = useAcademicYearStore()
+  const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
+
+  // ── Sekcja 1: filtry API (co ładujemy) ──────────────────────
+  const [facultyId, setFacultyId] = useState('')
+  const [fieldOfStudyId, setFieldOfStudyId] = useState('')
+  const [specializationId, setSpecializationId] = useState('')
+  const [semester, setSemester] = useState('')
+  const [studyMode, setStudyMode] = useState('')
+
+  // ── Sekcja 2: filtry widoku (client-side) ────────────────────
+  const [filterGroupId, setFilterGroupId] = useState('')
+  const [filterInstructorId, setFilterInstructorId] = useState('')
+  const [filterClassType, setFilterClassType] = useState('')
+  const [filterRoomId, setFilterRoomId] = useState('')
+
+  const displayStudyMode: StudyMode = (studyMode as StudyMode) || 'FULL_TIME'
+  const days = displayStudyMode === 'FULL_TIME' ? DAYS_FULL : DAYS_PART
+
   const [addSlot, setAddSlot] = useState<{ dayOfWeek: string; startTime: string } | null>(null)
   const [editTemplate, setEditTemplate] = useState<ScheduleTemplate | null>(null)
   const [showGenerateSemester, setShowGenerateSemester] = useState(false)
   const [showAutoGenerate, setShowAutoGenerate] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [overSlot, setOverSlot] = useState<string | null>(null)
+
+  // ── Zapytania dla sekcji 1 ───────────────────────────────────
+  const { data: facultiesData } = useQuery({
+    queryKey: ['faculties'],
+    queryFn: () => facultiesApi.getAll(),
+  })
+  const { data: fieldsData } = useQuery({
+    queryKey: ['fields-of-study', facultyId],
+    queryFn: () => fieldsApi.getAll(facultyId || undefined),
+    enabled: !!facultyId,
+  })
+  const { data: specsData } = useQuery({
+    queryKey: ['specializations', fieldOfStudyId],
+    queryFn: () => specsApi.getAll(fieldOfStudyId),
+    enabled: !!fieldOfStudyId,
+  })
+  const { data: groupsData } = useQuery({
+    queryKey: ['groups-tmpl', academicYear, fieldOfStudyId, specializationId, semester],
+    queryFn: () => groupsApi.getAll({
+      academicYear,
+      ...(fieldOfStudyId ? { fieldOfStudyId } : {}),
+      ...(semester ? { semester: parseInt(semester) } : {}),
+    }),
+    enabled: !!fieldOfStudyId,
+  })
+
+  const faculties = facultiesData?.data.data ?? []
+  const fields = fieldsData?.data.data ?? []
+  const specs = specsData?.data.data ?? []
+  const allGroups = groupsData?.data.data ?? []
+  const groups = specializationId
+    ? allGroups.filter(g => g.specializationId === specializationId)
+    : allGroups
+
+  const semesterNum = semester ? parseInt(semester) : undefined
+  const studyModeVal = (studyMode as StudyMode) || undefined
 
   const { data, refetch } = useQuery({
-    queryKey: ['templates', semester, academicYear, studyMode],
-    queryFn: () => scheduleApi.getTemplates({ semester, academicYear, studyMode }),
+    queryKey: ['templates', semesterNum, academicYear, studyModeVal],
+    queryFn: () => scheduleApi.getTemplates({ semester: semesterNum, academicYear, studyMode: studyModeVal }),
   })
 
   const templates = data?.data.data ?? []
+
+  // Unikalne prowadzący i sale z załadowanych wzorców (bez dodatkowych zapytań)
+  const tmplInstructors = useMemo(() => {
+    const seen = new Set<string>()
+    const result: Array<{ id: string; firstName: string; lastName: string; title?: string | null }> = []
+    for (const t of templates) {
+      if (!seen.has(t.instructor.id)) {
+        seen.add(t.instructor.id)
+        result.push(t.instructor)
+      }
+    }
+    return result.sort((a, b) => a.lastName.localeCompare(b.lastName))
+  }, [templates])
+
+  const tmplRooms = useMemo(() => {
+    const seen = new Set<string>()
+    const result: Array<{ id: string; number: string; building: { name: string } }> = []
+    for (const t of templates) {
+      if (!seen.has(t.room.id)) {
+        seen.add(t.room.id)
+        result.push(t.room)
+      }
+    }
+    return result.sort((a, b) => a.number.localeCompare(b.number))
+  }, [templates])
+
+  // Wzorce do wyświetlenia (filtry widoku) vs. wszystkie (do kolizji)
+  const visibleTemplates = useMemo(() =>
+    templates.filter(t =>
+      (!filterGroupId || t.studentGroup?.id === filterGroupId) &&
+      (!filterInstructorId || t.instructor.id === filterInstructorId) &&
+      (!filterClassType || t.classType === filterClassType) &&
+      (!filterRoomId || t.room.id === filterRoomId)
+    ),
+    [templates, filterGroupId, filterInstructorId, filterClassType, filterRoomId]
+  )
 
   const byDay = useMemo(() => {
     const map: Record<string, ScheduleTemplate[]> = {}
@@ -1280,7 +1782,43 @@ function TemplateTab({
     return map
   }, [templates, days])
 
+  const visibleByDay = useMemo(() => {
+    const map: Record<string, ScheduleTemplate[]> = {}
+    for (const d of days) map[d.key] = []
+    for (const t of visibleTemplates) {
+      if (map[t.dayOfWeek]) map[t.dayOfWeek]!.push(t)
+    }
+    return map
+  }, [visibleTemplates, days])
+
   const activeTemplate = activeId ? templates.find(t => t.id === activeId) : null
+
+  const dragInfo = useMemo(() => {
+    if (!activeTemplate) return null
+    const blockMins = activeTemplate.academicHours * SLOT_UNIT
+    const result: Record<string, Array<{ top: number; height: number }>> = {}
+    for (const day of days) {
+      const occupied = (byDay[day.key] ?? [])
+        .filter(t => t.id !== activeTemplate.id)
+        .map(t => ({ start: timeToMins(t.startTime), end: timeToMins(t.startTime) + t.academicHours * SLOT_UNIT }))
+      result[day.key] = getValidSlots(occupied, blockMins)
+    }
+    return result
+  }, [activeTemplate, byDay, days])
+
+  const hoverGhostTemplate = useMemo(() => {
+    if (!activeTemplate || !overSlot) return null
+    const [dayKey, slotTime] = overSlot.split('::')
+    if (!dayKey || !slotTime) return null
+    const startMins = timeToMins(slotTime)
+    const blockMins = activeTemplate.academicHours * SLOT_UNIT
+    if (startMins + blockMins > END_HOUR * 60) return null
+    const occupied = (byDay[dayKey] ?? [])
+      .filter(t => t.id !== activeTemplate.id)
+      .map(t => ({ start: timeToMins(t.startTime), end: timeToMins(t.startTime) + t.academicHours * SLOT_UNIT }))
+    const valid = !occupied.some(o => o.start < startMins + blockMins && o.end > startMins)
+    return { dayKey, startMins, blockMins, valid }
+  }, [activeTemplate, overSlot, byDay])
 
   const qc = useQueryClient()
 
@@ -1291,7 +1829,7 @@ function TemplateTab({
   })
 
   const deleteManyMutation = useMutation({
-    mutationFn: () => scheduleApi.deleteTemplates({ semester, academicYear, studyMode }),
+    mutationFn: () => scheduleApi.deleteTemplates({ semester: semesterNum, academicYear, studyMode: studyModeVal }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
   })
 
@@ -1301,6 +1839,7 @@ function TemplateTab({
 
   function handleDragEnd(e: DragEndEvent) {
     setActiveId(null)
+    setOverSlot(null)
     const { over, active } = e
     if (!over) return
 
@@ -1325,28 +1864,183 @@ function TemplateTab({
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 mb-4">
-        <Button variant="outline" size="sm" onClick={() => setShowAutoGenerate(true)} disabled={!fieldOfStudyId}>
-          Auto-generuj wzorzec
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowGenerateSemester(true)} disabled={templates.length === 0}>
-          Generuj terminy semestru ({templates.length} wzorców)
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          disabled={deleteManyMutation.isPending || templates.length === 0}
-          onClick={() => {
-            if (confirm(`Usunąć wszystkie wzorce dla semestru ${semester} (${academicYear}, ${studyMode === 'FULL_TIME' ? 'stacjonarne' : 'niestacjonarne'})?`)) {
-              deleteManyMutation.mutate()
-            }
-          }}
-        >
-          {deleteManyMutation.isPending ? 'Usuwanie...' : `Wyczyść wzorzec (${templates.length})`}
-        </Button>
+      {/* ── Sekcja 1: Zakres generowania planu ─────────────── */}
+      <div className="p-3 mb-2 bg-card rounded-lg border border-border">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Zakres generowania planu i widok</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Wydział</label>
+            <Select value={facultyId || '__all__'} onValueChange={v => {
+              const val = v === '__all__' ? '' : v
+              setFacultyId(val); setStudyMode(''); setFieldOfStudyId(''); setSpecializationId(''); setSemester(''); setFilterGroupId('')
+            }}>
+              <SelectTrigger className="w-full h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie wydziały</SelectItem>
+                {faculties.map(f => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Tryb</label>
+            <Select value={studyMode || '__all__'} onValueChange={v => setStudyMode(v === '__all__' ? '' : v)} disabled={!facultyId}>
+              <SelectTrigger className="w-full h-8 text-xs">
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie tryby</SelectItem>
+                <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
+                <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Kierunek</label>
+            <Select value={fieldOfStudyId || '__all__'} onValueChange={v => {
+              const val = v === '__all__' ? '' : v
+              setFieldOfStudyId(val); setSpecializationId(''); setSemester(''); setFilterGroupId('')
+            }} disabled={!facultyId}>
+              <SelectTrigger className="w-full h-8 text-xs">
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie kierunki</SelectItem>
+                {fields.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Specjalność</label>
+            <Select value={specializationId || '__all__'} onValueChange={v => {
+              const val = v === '__all__' ? '' : v
+              setSpecializationId(val); setFilterGroupId('')
+            }} disabled={!fieldOfStudyId}>
+              <SelectTrigger className="w-full h-8 text-xs">
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie specjalności</SelectItem>
+                {specs.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Semestr</label>
+            <Select value={semester || '__all__'} onValueChange={v => setSemester(v === '__all__' ? '' : v)} disabled={!fieldOfStudyId}>
+              <SelectTrigger className="w-full h-8 text-xs">
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie semestry</SelectItem>
+                {availableSemesters.map(s => (
+                  <SelectItem key={s} value={String(s)}>Sem. {s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Grupy</label>
+            <Select value={filterGroupId || '__all__'} onValueChange={v => setFilterGroupId(v === '__all__' ? '' : v)} disabled={!fieldOfStudyId}>
+              <SelectTrigger className="w-full h-8 text-xs">
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie grupy</SelectItem>
+                {groups.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border">
+          <Button variant="default" size="sm" onClick={() => setShowAutoGenerate(true)} disabled={!facultyId}>
+            Auto-generuj
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowGenerateSemester(true)} disabled={templates.length === 0}>
+            Generuj terminy ({templates.length})
+          </Button>
+          <Button
+            variant="destructive" size="sm"
+            disabled={deleteManyMutation.isPending || templates.length === 0}
+            onClick={() => {
+              if (confirm(`Usunąć wzorce dla ${semesterNum ? `sem. ${semesterNum}` : 'wszystkich semestrów'} (${academicYear})?`)) {
+                deleteManyMutation.mutate()
+              }
+            }}
+          >
+            {deleteManyMutation.isPending ? 'Usuwanie...' : `Wyczyść wzorzec (${templates.length})`}
+          </Button>
+        </div>
       </div>
 
-      <DndContext collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      {/* ── Sekcja 2: Widok (filtry client-side) ──────────── */}
+      <div className="p-3 mb-3 bg-card rounded-lg border border-border">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Widok</p>
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Typ zajęć</label>
+            <Select value={filterClassType || '__all__'} onValueChange={v => setFilterClassType(v === '__all__' ? '' : v)}>
+              <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie typy</SelectItem>
+                <SelectItem value="LECTURE">Wykład</SelectItem>
+                <SelectItem value="EXERCISE">Ćwiczenia</SelectItem>
+                <SelectItem value="LAB">Laboratorium</SelectItem>
+                <SelectItem value="PROJECT">Projekt</SelectItem>
+                <SelectItem value="SEMINAR">Seminarium</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Prowadzący</label>
+            <Select value={filterInstructorId || '__all__'} onValueChange={v => setFilterInstructorId(v === '__all__' ? '' : v)}>
+              <SelectTrigger className="w-48 h-8 text-xs"><SelectValue placeholder="Wszyscy" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszyscy prowadzący</SelectItem>
+                {tmplInstructors.map(i => (
+                  <SelectItem key={i.id} value={i.id}>{i.title ? `${i.title} ` : ''}{i.firstName} {i.lastName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] text-muted-foreground">Sala</label>
+            <Select value={filterRoomId || '__all__'} onValueChange={v => setFilterRoomId(v === '__all__' ? '' : v)}>
+              <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Wszystkie" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie sale</SelectItem>
+                {tmplRooms.map(r => (
+                  <SelectItem key={r.id} value={r.id}>{r.number} ({r.building.name})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {(filterClassType || filterInstructorId || filterRoomId) && (
+            <div className="flex flex-col justify-end gap-1">
+              <label className="text-[11px] text-transparent select-none">_</label>
+              <Button variant="ghost" size="sm" className="h-8 text-xs px-2"
+                onClick={() => { setFilterClassType(''); setFilterInstructorId(''); setFilterRoomId('') }}>
+                Wyczyść · {visibleTemplates.length}/{templates.length}
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <DndContext
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragOver={(e) => setOverSlot(e.over ? String(e.over.id) : null)}
+        onDragEnd={handleDragEnd}
+      >
         <div className="bg-card rounded-lg border border-border overflow-auto">
           <div className="flex min-w-[700px]">
             <TimeColumn />
@@ -1360,15 +2054,40 @@ function TemplateTab({
                     <DroppableSlot
                       key={slot}
                       id={`${day.key}::${slot}`}
+                      top={i * SLOT_HEIGHT}
                       onClick={() => setAddSlot({ dayOfWeek: day.key, startTime: slot })}
                     >
                       <div
-                        style={{ top: i * SLOT_HEIGHT, height: SLOT_HEIGHT }}
-                        className={`absolute w-full border-b ${slot.endsWith(':00') ? 'border-border' : 'border-border/30'} pointer-events-none`}
+                        className={`w-full h-full border-t pointer-events-none ${
+                          i === 0 ? 'border-transparent' :
+                          slot.endsWith(':00') ? 'border-border' :
+                          (slot.endsWith(':15') || slot.endsWith(':30') || slot.endsWith(':45')) ? 'border-border/30' :
+                          'border-border/10'
+                        }`}
                       />
                     </DroppableSlot>
                   ))}
-                  {byDay[day.key]?.map(t => (
+                  {/* Ghost bloki valid pozycji podczas przeciągania */}
+                  {dragInfo?.[day.key]?.map(({ top, height }, i) => (
+                    <div key={`v${i}`} style={{ position: 'absolute', top, height, left: 3, right: 3, zIndex: 0 }}
+                      className="rounded border border-dashed border-green-500/50 pointer-events-none" />
+                  ))}
+                  {/* Ghost blok na aktualnej pozycji kursora */}
+                  {hoverGhostTemplate?.dayKey === day.key && (
+                    <div style={{
+                      position: 'absolute',
+                      top: (hoverGhostTemplate.startMins - START_MINS) / SLOT_MINS * SLOT_HEIGHT,
+                      height: hoverGhostTemplate.blockMins / SLOT_MINS * SLOT_HEIGHT - 2,
+                      left: 4, right: 4, zIndex: 5,
+                    }}
+                      className={`rounded border-2 pointer-events-none ${
+                        hoverGhostTemplate.valid
+                          ? 'bg-green-500/30 border-green-400'
+                          : 'bg-red-500/25 border-red-400'
+                      }`}
+                    />
+                  )}
+                  {visibleByDay[day.key]?.map(t => (
                     <DraggableTemplateBlock
                       key={t.id}
                       template={t}
@@ -1384,7 +2103,7 @@ function TemplateTab({
         <DragOverlay>
           {activeTemplate && (
             <div
-              style={{ height: activeTemplate.academicHours * SLOT_UNIT / 15 * SLOT_HEIGHT - 2 }}
+              style={{ height: activeTemplate.academicHours * SLOT_UNIT / SLOT_MINS * SLOT_HEIGHT - 2 }}
               className={`rounded border-l-4 px-2 py-1 text-xs shadow-xl w-32 ${CLASS_COLORS[activeTemplate.classType]}`}
             >
               <p className="font-semibold truncate">{activeTemplate.curriculumEntry.subject.name}</p>
@@ -1402,9 +2121,9 @@ function TemplateTab({
         <AddTemplateDialog
           open
           prefill={addSlot}
-          semester={semester}
+          semester={semesterNum ?? 1}
           academicYear={academicYear}
-          studyMode={studyMode}
+          studyMode={displayStudyMode}
           onClose={() => setAddSlot(null)}
           onSuccess={() => void refetch()}
         />
@@ -1429,11 +2148,12 @@ function TemplateTab({
       <AutoGenerateDialog
         open={showAutoGenerate}
         onClose={() => setShowAutoGenerate(false)}
-        semester={semester}
+        semester={semesterNum}
         academicYear={academicYear}
-        studyMode={studyMode}
-        fieldOfStudyId={fieldOfStudyId}
-        specializationId={specializationId}
+        studyMode={studyModeVal}
+        facultyId={facultyId || undefined}
+        fieldOfStudyId={fieldOfStudyId || undefined}
+        specializationId={specializationId || undefined}
       />
     </div>
   )
@@ -1441,23 +2161,14 @@ function TemplateTab({
 
 // ─── Zakładka Kalendarz semestru ───────────────────────────────
 
-function CalendarTab({
-  academicYear,
-  studyMode,
-  semester,
-  fieldOfStudyId,
-  specializationId,
-}: {
-  academicYear: string
-  studyMode: StudyMode
-  semester?: number
-  fieldOfStudyId?: string
-  specializationId?: string
-}) {
+function CalendarTab({ academicYear }: { academicYear: string }) {
+  const [studyMode, setStudyMode] = useState<StudyMode>('FULL_TIME')
   const days = studyMode === 'FULL_TIME' ? DAYS_FULL : DAYS_PART
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
   const [filterGroupId, setFilterGroupId] = useState('__all__')
   const [filterInstructorId, setFilterInstructorId] = useState('__all__')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [filterClassType, setFilterClassType] = useState('')
   const [selectedEntry, setSelectedEntry] = useState<ScheduleEntry | null>(null)
   const [moveState, setMoveState] = useState<{
     entry: ScheduleEntry
@@ -1465,6 +2176,7 @@ function CalendarTab({
     targetSlot: string
   } | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [overSlot, setOverSlot] = useState<string | null>(null)
   const [showCalendarDialog, setShowCalendarDialog] = useState(false)
 
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart])
@@ -1478,12 +2190,13 @@ function CalendarTab({
   })
 
   const { data: entriesData, refetch } = useQuery({
-    queryKey: ['entries', fromStr, toStr, filterGroupId, filterInstructorId],
+    queryKey: ['entries', fromStr, toStr, filterGroupId, filterInstructorId, filterStatus],
     queryFn: () => scheduleApi.getEntries({
       from: fromStr,
       to: toStr,
       studentGroupId: filterGroupId !== '__all__' ? filterGroupId : undefined,
       instructorId: filterInstructorId !== '__all__' ? filterInstructorId : undefined,
+      status: filterStatus || undefined,
     }),
   })
 
@@ -1493,12 +2206,8 @@ function CalendarTab({
   })
 
   const { data: groupsData } = useQuery({
-    queryKey: ['groups-all', academicYear, fieldOfStudyId, semester],
-    queryFn: () => groupsApi.getAll({
-      academicYear,
-      ...(fieldOfStudyId ? { fieldOfStudyId } : {}),
-      ...(semester ? { semester } : {}),
-    }),
+    queryKey: ['groups-cal', academicYear],
+    queryFn: () => groupsApi.getAll({ academicYear }),
   })
 
   const { data: instructorsData } = useQuery({
@@ -1506,12 +2215,10 @@ function CalendarTab({
     queryFn: () => instructorsApi.getAll(),
   })
 
-  const entries = entriesData?.data.data ?? []
+  const allEntries = entriesData?.data.data ?? []
+  const entries = filterClassType ? allEntries.filter(e => e.classType === filterClassType) : allEntries
   const holidays = holidaysData?.data.data ?? []
-  const allGroups = groupsData?.data.data ?? []
-  const groups = specializationId
-    ? allGroups.filter(g => g.specializationId === specializationId)
-    : allGroups
+  const groups = groupsData?.data.data ?? []
   const instructors = instructorsData?.data.data ?? []
 
   const holidaySet = useMemo(() => {
@@ -1533,6 +2240,33 @@ function CalendarTab({
 
   const activeEntry = activeId ? entries.find(e => e.id === activeId) : null
 
+  const dragInfoEntry = useMemo(() => {
+    if (!activeEntry) return null
+    const blockMins = activeEntry.academicHours * SLOT_UNIT
+    const result: Record<string, Array<{ top: number; height: number }>> = {}
+    for (const day of days) {
+      const occupied = (byDay[day.key] ?? [])
+        .filter(e => e.id !== activeEntry.id)
+        .map(e => ({ start: timeToMins(e.startTime), end: timeToMins(e.startTime) + e.academicHours * SLOT_UNIT }))
+      result[day.key] = getValidSlots(occupied, blockMins)
+    }
+    return result
+  }, [activeEntry, byDay, days])
+
+  const hoverGhostEntry = useMemo(() => {
+    if (!activeEntry || !overSlot) return null
+    const [dayKey, slotTime] = overSlot.split('::')
+    if (!dayKey || !slotTime) return null
+    const startMins = timeToMins(slotTime)
+    const blockMins = activeEntry.academicHours * SLOT_UNIT
+    if (startMins + blockMins > END_HOUR * 60) return null
+    const occupied = (byDay[dayKey] ?? [])
+      .filter(e => e.id !== activeEntry.id)
+      .map(e => ({ start: timeToMins(e.startTime), end: timeToMins(e.startTime) + e.academicHours * SLOT_UNIT }))
+    const valid = !occupied.some(o => o.start < startMins + blockMins && o.end > startMins)
+    return { dayKey, startMins, blockMins, valid }
+  }, [activeEntry, overSlot, byDay])
+
   function prevWeek() {
     setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n })
   }
@@ -1546,6 +2280,7 @@ function CalendarTab({
 
   function handleDragEnd(e: DragEndEvent) {
     setActiveId(null)
+    setOverSlot(null)
     const { over, active } = e
     if (!over) return
 
@@ -1582,8 +2317,18 @@ function CalendarTab({
           <Button variant="outline" size="sm" onClick={nextWeek}>Następny →</Button>
         </div>
 
+        <Select value={studyMode} onValueChange={v => setStudyMode(v as StudyMode)}>
+          <SelectTrigger className="w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
+            <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Select value={filterGroupId} onValueChange={setFilterGroupId}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="w-44">
             <SelectValue placeholder="Wszystkie grupy" />
           </SelectTrigger>
           <SelectContent>
@@ -1601,6 +2346,32 @@ function CalendarTab({
             {instructors.map(i => (
               <SelectItem key={i.id} value={i.id}>{i.firstName} {i.lastName}</SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={filterStatus || '__all__'} onValueChange={v => setFilterStatus(v === '__all__' ? '' : v)}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Wszystkie statusy" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">Wszystkie statusy</SelectItem>
+            <SelectItem value="SCHEDULED">Zaplanowane</SelectItem>
+            <SelectItem value="CANCELLED">Odwołane</SelectItem>
+            <SelectItem value="MAKEUP">Odrobienie</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={filterClassType || '__all__'} onValueChange={v => setFilterClassType(v === '__all__' ? '' : v)}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="Typ zajęć" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">Wszystkie typy</SelectItem>
+            <SelectItem value="LECTURE">Wykład</SelectItem>
+            <SelectItem value="EXERCISE">Ćwiczenia</SelectItem>
+            <SelectItem value="LAB">Laboratorium</SelectItem>
+            <SelectItem value="PROJECT">Projekt</SelectItem>
+            <SelectItem value="SEMINAR">Seminarium</SelectItem>
           </SelectContent>
         </Select>
 
@@ -1622,7 +2393,12 @@ function CalendarTab({
         </Button>
       </div>
 
-      <DndContext collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragOver={(e) => setOverSlot(e.over ? String(e.over.id) : null)}
+        onDragEnd={handleDragEnd}
+      >
         <div className="bg-card rounded-lg border border-border overflow-auto">
           <div className="flex min-w-[700px]">
             <TimeColumn />
@@ -1649,13 +2425,38 @@ function CalendarTab({
                       <DroppableSlot
                         key={slot}
                         id={`${day.key}::${slot}`}
+                        top={i * SLOT_HEIGHT}
                       >
                         <div
-                          style={{ top: i * SLOT_HEIGHT, height: SLOT_HEIGHT }}
-                          className={`absolute w-full border-b ${slot.endsWith(':00') ? 'border-border' : 'border-border/30'} pointer-events-none`}
+                          className={`w-full h-full border-t pointer-events-none ${
+                            i === 0 ? 'border-transparent' :
+                            slot.endsWith(':00') ? 'border-border' :
+                            slot.endsWith(':30') ? 'border-border/50' :
+                            'border-border/20'
+                          }`}
                         />
                       </DroppableSlot>
                     ))}
+                    {/* Ghost bloki valid pozycji podczas przeciągania */}
+                    {dragInfoEntry?.[day.key]?.map(({ top, height }, i) => (
+                      <div key={`v${i}`} style={{ position: 'absolute', top, height, left: 3, right: 3, zIndex: 0 }}
+                        className="rounded border border-dashed border-green-500/50 pointer-events-none" />
+                    ))}
+                    {/* Ghost blok na aktualnej pozycji kursora */}
+                    {hoverGhostEntry?.dayKey === day.key && (
+                      <div style={{
+                        position: 'absolute',
+                        top: (hoverGhostEntry.startMins - START_MINS) / SLOT_MINS * SLOT_HEIGHT,
+                        height: hoverGhostEntry.blockMins / SLOT_MINS * SLOT_HEIGHT - 2,
+                        left: 4, right: 4, zIndex: 5,
+                      }}
+                        className={`rounded border-2 pointer-events-none ${
+                          hoverGhostEntry.valid
+                            ? 'bg-green-500/30 border-green-400'
+                            : 'bg-red-500/25 border-red-400'
+                        }`}
+                      />
+                    )}
                     {byDay[day.key]?.map(entry => (
                       <DraggableEntryBlock
                         key={entry.id}
@@ -1673,7 +2474,7 @@ function CalendarTab({
         <DragOverlay>
           {activeEntry && (
             <div
-              style={{ height: activeEntry.academicHours * SLOT_UNIT / 15 * SLOT_HEIGHT - 2 }}
+              style={{ height: activeEntry.academicHours * SLOT_UNIT / SLOT_MINS * SLOT_HEIGHT - 2 }}
               className={`rounded border-l-4 px-2 py-1 text-xs shadow-xl w-32 opacity-90 ${CLASS_COLORS[activeEntry.classType]}`}
             >
               <p className="font-semibold truncate">{activeEntry.curriculumEntry.subject.name}</p>
@@ -1717,109 +2518,14 @@ function CalendarTab({
 // ─── Główna strona ─────────────────────────────────────────────
 
 export function SchedulePage() {
-  const { academicYear, semesterType } = useAcademicYearStore()
+  const { academicYear } = useAcademicYearStore()
   const [tab, setTab] = useState<'template' | 'calendar'>('template')
-  const [semester, setSemester] = useState<string>('')
-  const [studyMode, setStudyMode] = useState<StudyMode>('FULL_TIME')
-  const [facultyId, setFacultyId] = useState('')
-  const [fieldOfStudyId, setFieldOfStudyId] = useState('')
-  const [specializationId, setSpecializationId] = useState('')
-
-  const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
-
-  const { data: facultiesData } = useQuery({
-    queryKey: ['faculties'],
-    queryFn: () => facultiesApi.getAll(),
-  })
-  const { data: fieldsData } = useQuery({
-    queryKey: ['fields-of-study', facultyId],
-    queryFn: () => fieldsApi.getAll(facultyId || undefined),
-    enabled: true,
-  })
-  const { data: specsData } = useQuery({
-    queryKey: ['specializations', fieldOfStudyId],
-    queryFn: () => specsApi.getAll(fieldOfStudyId),
-    enabled: !!fieldOfStudyId,
-  })
-
-  const faculties = facultiesData?.data.data ?? []
-  const fields = fieldsData?.data.data ?? []
-  const specs = specsData?.data.data ?? []
 
   return (
     <div>
       <div className="mb-6">
         <h2 className="text-2xl font-bold">Plan zajęć</h2>
         <p className="text-muted-foreground text-sm">Wzorzec tygodniowy i konkretne terminy</p>
-      </div>
-
-      {/* Filtry globalne */}
-      <div className="flex flex-wrap gap-3 mb-4 p-4 bg-card rounded-lg border border-border">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">Wydział</label>
-          <Select value={facultyId || '__all__'} onValueChange={v => {
-            setFacultyId(v === '__all__' ? '' : v)
-            setFieldOfStudyId('')
-            setSpecializationId('')
-          }}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">Wszystkie wydziały</SelectItem>
-              {faculties.map(f => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">Kierunek</label>
-          <Select value={fieldOfStudyId || '__all__'} onValueChange={v => {
-            setFieldOfStudyId(v === '__all__' ? '' : v)
-            setSpecializationId('')
-          }}>
-            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">Wszystkie kierunki</SelectItem>
-              {fields.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {specs.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground">Specjalność</label>
-            <Select value={specializationId || '__all__'} onValueChange={v => setSpecializationId(v === '__all__' ? '' : v)}>
-              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">Wszystkie specjalności</SelectItem>
-                {specs.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">Tryb studiów</label>
-          <Select value={studyMode} onValueChange={v => setStudyMode(v as StudyMode)}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
-              <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">Semestr</label>
-          <Select value={semester || '__all__'} onValueChange={v => setSemester(v === '__all__' ? '' : v)}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">Wszystkie</SelectItem>
-              {availableSemesters.map(s => (
-                <SelectItem key={s} value={String(s)}>Semestr {s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
       {/* Zakładki */}
@@ -1846,25 +2552,8 @@ export function SchedulePage() {
         </button>
       </div>
 
-      {tab === 'template' && (
-        <TemplateTab
-          academicYear={academicYear}
-          semester={semester ? parseInt(semester) : (availableSemesters[0] ?? 1)}
-          studyMode={studyMode}
-          fieldOfStudyId={fieldOfStudyId || undefined}
-          specializationId={specializationId || undefined}
-        />
-      )}
-
-      {tab === 'calendar' && (
-        <CalendarTab
-          academicYear={academicYear}
-          studyMode={studyMode}
-          semester={semester ? parseInt(semester) : undefined}
-          fieldOfStudyId={fieldOfStudyId || undefined}
-          specializationId={specializationId || undefined}
-        />
-      )}
+      {tab === 'template' && <TemplateTab academicYear={academicYear} />}
+      {tab === 'calendar' && <CalendarTab academicYear={academicYear} />}
     </div>
   )
 }

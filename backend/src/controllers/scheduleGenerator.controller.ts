@@ -53,61 +53,59 @@ function getDatesForDayOfWeek(
 // Automatyczna propozycja wzorca (nie zapisuje do bazy)
 export const generateTemplate = async (req: Request, res: Response) => {
   try {
-    const { fieldOfStudyId, specializationId, semester, academicYear, studyMode } = req.body as {
-      fieldOfStudyId: string
+    const { facultyId, fieldOfStudyId, specializationId, semester, academicYear, studyMode } = req.body as {
+      facultyId?: string
+      fieldOfStudyId?: string
       specializationId?: string
-      semester: number
+      semester?: number        // opcjonalny — jeśli brak, generuj dla wszystkich semestrów
       academicYear: string
-      studyMode: StudyMode
+      studyMode?: StudyMode    // opcjonalny — jeśli brak, generuj dla wszystkich trybów
     }
 
-    if (!fieldOfStudyId || !semester || !academicYear || !studyMode) {
-      return res.status(400).json({ error: 'Brakujące wymagane pola' })
+    if (!academicYear) {
+      return res.status(400).json({ error: 'Brakujące wymagane pole: academicYear' })
+    }
+    if (!facultyId && !fieldOfStudyId && !specializationId) {
+      return res.status(400).json({ error: 'Podaj co najmniej wydział, kierunek lub specjalność' })
     }
 
-    const groups = await prisma.studentGroup.findMany({
-      where: {
-        fieldOfStudyId,
-        ...(specializationId ? { specializationId } : {}),
-        semester,
-        academicYear,
-      },
-    })
+    // Wyznacz listę specjalności do wygenerowania
+    type SpecTarget = { id: string; name: string; fieldOfStudyId: string }
+    let targetSpecs: SpecTarget[]
 
-    if (groups.length === 0) {
-      return res.status(404).json({ error: 'Brak grup dla podanych parametrów' })
+    if (specializationId) {
+      const spec = await prisma.specialization.findUnique({
+        where: { id: specializationId },
+        select: { id: true, name: true, fieldOfStudyId: true },
+      })
+      if (!spec) return res.status(404).json({ error: 'Specjalność nie znaleziona' })
+      targetSpecs = [spec]
+    } else if (fieldOfStudyId) {
+      targetSpecs = await prisma.specialization.findMany({
+        where: { fieldOfStudyId },
+        select: { id: true, name: true, fieldOfStudyId: true },
+      })
+    } else {
+      targetSpecs = await prisma.specialization.findMany({
+        where: { fieldOfStudy: { facultyId } },
+        select: { id: true, name: true, fieldOfStudyId: true },
+      })
     }
 
-    const curriculumVersion = await prisma.curriculumVersion.findFirst({
-      where: {
-        specialization: {
-          ...(specializationId ? { id: specializationId } : { fieldOfStudyId }),
-        },
-        studyMode,
-        isActive: true,
-      },
-      include: {
-        entries: {
-          where: { semester },
-          include: { subject: { select: { name: true } }, instructor: { select: { id: true, firstName: true, lastName: true } } },
-        },
-      },
-    })
-
-    if (!curriculumVersion || curriculumVersion.entries.length === 0) {
-      return res.status(404).json({ error: 'Brak siatki godzin dla podanych parametrów' })
+    if (targetSpecs.length === 0) {
+      return res.status(404).json({ error: 'Brak specjalności dla podanych parametrów' })
     }
 
-    // Okna czasowe wg trybu (minuty od północy)
     type TimeWindow = { days: number[]; start: number; end: number }
-    const timeWindows: TimeWindow[] = studyMode === 'FULL_TIME'
-      ? [{ days: [1, 2, 3, 4, 5], start: 7 * 60, end: 20 * 60 }]
-      : [
-          { days: [5], start: 15 * 60, end: 20 * 60 },
-          { days: [6, 0], start: 7 * 60, end: 20 * 60 },
-        ]
 
-    // typ zajęć → dopuszczalne typy sal
+    const getTimeWindows = (mode: StudyMode): TimeWindow[] =>
+      mode === 'FULL_TIME'
+        ? [{ days: [1, 2, 3, 4, 5], start: 7 * 60, end: 20 * 60 }]
+        : [
+            { days: [5], start: 15 * 60, end: 20 * 60 },
+            { days: [6, 0], start: 7 * 60, end: 20 * 60 },
+          ]
+
     const roomTypeMap: Record<ClassType, string[]> = {
       LECTURE: ['LECTURE'],
       EXERCISE: ['EXERCISE', 'LECTURE'],
@@ -116,29 +114,23 @@ export const generateTemplate = async (req: Request, res: Response) => {
       SEMINAR: ['SEMINAR', 'EXERCISE'],
     }
 
-    const rooms = await prisma.room.findMany({
-      include: { building: { select: { name: true } } },
-    })
-
-    const instructors = await prisma.instructor.findMany({
-      select: { id: true, firstName: true, lastName: true },
-    })
-
-    const lectureGroup = groups.find(g => g.type === 'LECTURE')
-    const groupSize = lectureGroup?.size ?? 30
-
-    // Śledzenie zajętości slotów w drafcie
-    const usedSlots = new Set<string>()            // `${day}-${t}` per 30 min
-    const usedRoomSlots = new Set<string>()        // `${roomId}-${day}-${t}`
-    const usedInstructorSlots = new Set<string>()  // `${instructorId}-${day}-${t}`
-
-    const markSlot = (day: number, start: number, end: number) => {
-      for (let t = start; t < end; t += 30) usedSlots.add(`${day}-${t}`)
+    const minsFromStr = (t: string) => {
+      const [h, m] = t.split(':').map(Number)
+      return (h ?? 0) * 60 + (m ?? 0)
     }
-    const isSlotFree = (day: number, start: number, end: number) => {
-      for (let t = start; t < end; t += 30) if (usedSlots.has(`${day}-${t}`)) return false
-      return true
+    const toTime = (mins: number) =>
+      `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+    const dayNumberMap: Record<DayOfWeek, number> = {
+      MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5, SATURDAY: 6, SUNDAY: 0,
     }
+
+    const rooms = await prisma.room.findMany({ include: { building: { select: { name: true } } } })
+    const instructors = await prisma.instructor.findMany({ select: { id: true, firstName: true, lastName: true } })
+
+    // Wspólne śledzenie sal i prowadzących (sala/prowadzący nie może być w dwóch miejscach naraz)
+    const usedRoomSlots = new Set<string>()
+    const usedInstructorSlots = new Set<string>()
+
     const markRoom = (roomId: string, day: number, start: number, end: number) => {
       for (let t = start; t < end; t += 30) usedRoomSlots.add(`${roomId}-${day}-${t}`)
     }
@@ -154,103 +146,204 @@ export const generateTemplate = async (req: Request, res: Response) => {
       return true
     }
 
+    // Pre-populate z już zapisanych szablonów
+    const existingTemplates = await prisma.scheduleTemplate.findMany({
+      where: { academicYear },
+      select: { roomId: true, instructorId: true, dayOfWeek: true, startTime: true, endTime: true },
+    })
+    for (const tmpl of existingTemplates) {
+      const day = dayNumberMap[tmpl.dayOfWeek]
+      const start = minsFromStr(tmpl.startTime)
+      const end = minsFromStr(tmpl.endTime) + 15
+      markRoom(tmpl.roomId, day, start, end)
+      markInstructor(tmpl.instructorId, day, start, end)
+    }
+
     const teachingWeeks = 15
-    const proposals: object[] = []
+    const allProposals: object[] = []
 
-    for (const entry of curriculumVersion.entries) {
-      const classTypes: Array<{ type: ClassType; hours: number }> = [
-        { type: ClassType.LECTURE,  hours: entry.hoursLecture },
-        { type: ClassType.EXERCISE, hours: entry.hoursExercise },
-        { type: ClassType.LAB,      hours: entry.hoursLab },
-        { type: ClassType.PROJECT,  hours: entry.hoursProject },
-        { type: ClassType.SEMINAR,  hours: entry.hoursSeminar },
-      ].filter(ct => ct.hours > 0)
+    // Generuj osobno dla każdej specjalności
+    for (const spec of targetSpecs) {
+      // Pobierz wszystkie aktywne wersje planów (filtruj tryb tylko jeśli podany)
+      const curriculumVersions = await prisma.curriculumVersion.findMany({
+        where: {
+          specialization: { id: spec.id },
+          ...(studyMode ? { studyMode } : {}),
+          isActive: true,
+        },
+        include: {
+          entries: {
+            where: semester ? { semester } : {},
+            include: {
+              subject: { select: { name: true } },
+              instructor: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
+        },
+      })
 
-      for (const { type, hours } of classTypes) {
-        const hoursPerWeek = Math.ceil(hours / teachingWeeks)
-        const blockHours = Math.min(Math.max(hoursPerWeek, 1), 2)
-        const blockMinutes = blockHours * 45
+      for (const cv of curriculumVersions) {
+        const effectiveStudyMode = cv.studyMode
+        const timeWindows = getTimeWindows(effectiveStudyMode)
 
-        const allowedRoomTypes = roomTypeMap[type]
-        const suitableRooms = rooms.filter(r =>
-          allowedRoomTypes.includes(r.type) && r.capacity >= groupSize
-        )
+        // Pogrupuj wpisy po semestrze
+        const semesterMap = new Map<number, typeof cv.entries>()
+        for (const entry of cv.entries) {
+          if (!semesterMap.has(entry.semester)) semesterMap.set(entry.semester, [])
+          semesterMap.get(entry.semester)!.push(entry)
+        }
 
-        let found = false
-        outer:
-        for (const window of timeWindows) {
-          for (const day of window.days) {
-            for (let start = window.start; start + blockMinutes <= window.end; start += 30) {
-              const end = start + blockMinutes
-              if (!isSlotFree(day, start, end)) continue
-              const freeRoom = suitableRooms.find(r => isRoomFree(r.id, day, start, end))
-              if (!freeRoom) continue
+        for (const [effectiveSemester, entries] of semesterMap) {
+          // Osobne śledzenie slotów dla każdej kombinacji (spec, tryb, semestr)
+          const usedSlots = new Set<string>()
+          const markSlot = (day: number, start: number, end: number) => {
+            for (let t = start; t < end; t += 30) usedSlots.add(`${day}-${t}`)
+          }
+          const isSlotFree = (day: number, start: number, end: number) => {
+            for (let t = start; t < end; t += 30) if (usedSlots.has(`${day}-${t}`)) return false
+            return true
+          }
 
-              const toTime = (mins: number) =>
-                `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+          const groups = await prisma.studentGroup.findMany({
+            where: { specializationId: spec.id, semester: effectiveSemester, academicYear },
+          })
+          if (groups.length === 0) continue
 
-              // Prowadzący z siatki lub pierwszy wolny
-              let instructorId = entry.instructorId ?? null
-              let instructorName: string | null = null
-              if (instructorId) {
-                const instr = instructors.find(i => i.id === instructorId)
-                instructorName = instr ? `${instr.firstName} ${instr.lastName}` : null
-              } else {
-                const freeInstructor = instructors.find(i => isInstructorFree(i.id, day, start, end))
-                if (freeInstructor) {
-                  instructorId = freeInstructor.id
-                  instructorName = `${freeInstructor.firstName} ${freeInstructor.lastName}`
+          const lectureGroup = groups.find(g => g.type === 'LECTURE')
+          const defaultSize = lectureGroup?.size ?? 30
+          const groupByType: Partial<Record<ClassType, typeof groups[number]>> = {
+            [ClassType.LECTURE]:  lectureGroup,
+            [ClassType.EXERCISE]: groups.find(g => g.type === 'EXERCISE') ?? lectureGroup,
+            [ClassType.LAB]:      groups.find(g => g.type === 'LAB') ?? lectureGroup,
+            [ClassType.PROJECT]:  groups.find(g => g.type === 'PROJECT') ?? lectureGroup,
+            [ClassType.SEMINAR]:  groups.find(g => g.type === 'SEMINAR') ?? lectureGroup,
+          }
+
+          for (const entry of entries) {
+            const classTypes: Array<{ type: ClassType; hours: number }> = [
+              { type: ClassType.LECTURE,  hours: entry.hoursLecture },
+              { type: ClassType.EXERCISE, hours: entry.hoursExercise },
+              { type: ClassType.LAB,      hours: entry.hoursLab },
+              { type: ClassType.PROJECT,  hours: entry.hoursProject },
+              { type: ClassType.SEMINAR,  hours: entry.hoursSeminar },
+            ].filter(ct => ct.hours > 0)
+
+            for (const { type, hours } of classTypes) {
+              const hoursPerWeek = Math.ceil(hours / teachingWeeks)
+              const blockHours = Math.min(Math.max(hoursPerWeek, 1), 2)
+              const teachingMinutes = blockHours * 45 + (blockHours - 1) * 15
+              const slotMinutes = teachingMinutes + 15
+
+              const allowedRoomTypes = roomTypeMap[type]
+              const assignedGroup = groupByType[type]
+              const effectiveGroupSize = assignedGroup?.size ?? defaultSize
+
+              // Rooms of the correct type, sorted by capacity ascending (prefer tightest fit)
+              const roomsOfCorrectType = rooms
+                .filter(r => allowedRoomTypes.includes(r.type))
+                .sort((a, b) => a.capacity - b.capacity)
+              // Ideal: capacity >= group size; fallback: largest available room of correct type
+              const idealRooms = roomsOfCorrectType.filter(r => r.capacity >= effectiveGroupSize)
+              const candidateRooms = idealRooms.length > 0
+                ? idealRooms
+                : [...roomsOfCorrectType].sort((a, b) => b.capacity - a.capacity)
+
+              let found = false
+              let capacityNote: string | null = null
+              outer:
+              for (const window of timeWindows) {
+                for (const day of window.days) {
+                  for (let start = window.start; start + slotMinutes <= window.end; start += 30) {
+                    const slotEnd = start + slotMinutes
+                    const teachingEnd = start + teachingMinutes
+                    if (!isSlotFree(day, start, slotEnd)) continue
+                    const freeRoom = candidateRooms.find(r => isRoomFree(r.id, day, start, slotEnd))
+                    if (!freeRoom) continue
+                    if (freeRoom.capacity < effectiveGroupSize) {
+                      capacityNote = `Sala ${freeRoom.number} (poj. ${freeRoom.capacity}) < wielkość grupy (${effectiveGroupSize})`
+                    }
+
+                    let instructorId = entry.instructorId ?? null
+                    let instructorName: string | null = null
+                    if (instructorId) {
+                      const instr = instructors.find(i => i.id === instructorId)
+                      if (instr && !isInstructorFree(instr.id, day, start, slotEnd)) {
+                        // Prowadzący z siatki zajęty — znajdź innego wolnego
+                        const alt = instructors.find(i => i.id !== instructorId && isInstructorFree(i.id, day, start, slotEnd))
+                        instructorId = alt?.id ?? null
+                        instructorName = alt ? `${alt.firstName} ${alt.lastName}` : null
+                      } else {
+                        instructorName = instr ? `${instr.firstName} ${instr.lastName}` : null
+                      }
+                    } else {
+                      const freeInstructor = instructors.find(i => isInstructorFree(i.id, day, start, slotEnd))
+                      if (freeInstructor) {
+                        instructorId = freeInstructor.id
+                        instructorName = `${freeInstructor.firstName} ${freeInstructor.lastName}`
+                      }
+                    }
+
+                    allProposals.push({
+                      specializationId: spec.id,
+                      specializationName: spec.name,
+                      curriculumEntryId: entry.id,
+                      subjectName: entry.subject.name,
+                      classType: type,
+                      academicHours: blockHours,
+                      dayOfWeek: dayOfWeekMap[day],
+                      startTime: toTime(start),
+                      endTime: toTime(teachingEnd),
+                      roomId: freeRoom.id,
+                      roomNumber: freeRoom.number,
+                      buildingName: freeRoom.building.name,
+                      instructorId,
+                      instructorName,
+                      studentGroupId: assignedGroup?.id ?? null,
+                      studentGroupName: assignedGroup?.name ?? null,
+                      semester: effectiveSemester,
+                      academicYear,
+                      studyMode: effectiveStudyMode,
+                      weekType: 'EVERY' as const,
+                      ...(capacityNote ? { note: capacityNote } : {}),
+                    })
+
+                    markSlot(day, start, slotEnd)
+                    markRoom(freeRoom.id, day, start, slotEnd)
+                    if (instructorId) markInstructor(instructorId, day, start, slotEnd)
+                    found = true
+                    break outer
+                  }
                 }
               }
 
-              proposals.push({
-                curriculumEntryId: entry.id,
-                subjectName: entry.subject.name,
-                classType: type,
-                academicHours: blockHours,
-                dayOfWeek: dayOfWeekMap[day],
-                startTime: toTime(start),
-                endTime: toTime(end),
-                roomId: freeRoom.id,
-                roomNumber: freeRoom.number,
-                buildingName: freeRoom.building.name,
-                instructorId,
-                instructorName,
-                semester,
-                academicYear,
-                studyMode,
-                weekType: 'EVERY' as const,
-              })
+              if (!found) {
+                const warning = roomsOfCorrectType.length === 0
+                  ? `Brak sal typu ${allowedRoomTypes.join('/')} w bazie`
+                  : 'Wszystkie sale i prowadzący zajęci w oknie czasowym'
 
-              markSlot(day, start, end)
-              markRoom(freeRoom.id, day, start, end)
-              if (instructorId) markInstructor(instructorId, day, start, end)
-              found = true
-              break outer
+                allProposals.push({
+                  specializationId: spec.id,
+                  specializationName: spec.name,
+                  curriculumEntryId: entry.id,
+                  subjectName: entry.subject.name,
+                  classType: type,
+                  academicHours: blockHours,
+                  semester: effectiveSemester,
+                  studyMode: effectiveStudyMode,
+                  warning,
+                })
+              }
             }
           }
-        }
-
-        if (!found) {
-          const roomsOfType = rooms.filter(r => roomTypeMap[type].includes(r.type))
-          const warning = suitableRooms.length === 0
-            ? roomsOfType.length === 0
-              ? `Brak sal typu ${allowedRoomTypes.join('/')} w bazie`
-              : `Brak sal ${allowedRoomTypes.join('/')} o pojemności ≥ ${groupSize} (dostępne: ${roomsOfType.map(r => r.number).join(', ')})`
-            : 'Wszystkie sale i prowadzący zajęci w oknie czasowym'
-
-          proposals.push({
-            curriculumEntryId: entry.id,
-            subjectName: entry.subject.name,
-            classType: type,
-            academicHours: blockHours,
-            warning,
-          })
         }
       }
     }
 
-    res.json({ data: proposals, meta: { total: proposals.length } })
+    if (allProposals.length === 0) {
+      return res.status(404).json({ error: 'Brak grup lub siatek godzin dla podanych parametrów' })
+    }
+
+    res.json({ data: allProposals, meta: { total: allProposals.length } })
   } catch (error) {
     res.status(500).json({ error: 'Błąd serwera', details: error })
   }
