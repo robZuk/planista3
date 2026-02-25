@@ -149,9 +149,16 @@ export const generateTemplate = async (req: Request, res: Response) => {
     // Pre-populate z już zapisanych szablonów
     const existingTemplates = await prisma.scheduleTemplate.findMany({
       where: { academicYear },
-      select: { roomId: true, instructorId: true, dayOfWeek: true, startTime: true, endTime: true },
+      select: {
+        roomId: true, instructorId: true, dayOfWeek: true, startTime: true, endTime: true,
+        curriculumEntryId: true, classType: true, academicHours: true,
+      },
     })
+    // Zbiór już zaplanowanych kombinacji (curriculumEntryId|classType) — pomijamy je w generatorze
+    const plannedHoursMap = new Map<string, number>()
     for (const tmpl of existingTemplates) {
+      const key = `${tmpl.curriculumEntryId}|${tmpl.classType}`
+      plannedHoursMap.set(key, (plannedHoursMap.get(key) ?? 0) + tmpl.academicHours)
       const day = dayNumberMap[tmpl.dayOfWeek]
       const start = minsFromStr(tmpl.startTime)
       const end = minsFromStr(tmpl.endTime) + 15
@@ -229,6 +236,11 @@ export const generateTemplate = async (req: Request, res: Response) => {
             ].filter(ct => ct.hours > 0)
 
             for (const { type, hours } of classTypes) {
+              const plannedKey = `${entry.id}|${type}`
+              const alreadyPlanned = plannedHoursMap.get(plannedKey) ?? 0
+              // Flaga: czy ta kombinacja ma już szablon (ale nie blokujemy — użytkownik może chcieć dodać kolejny slot)
+              const alreadyScheduled = alreadyPlanned > 0
+
               const hoursPerWeek = Math.ceil(hours / teachingWeeks)
               const blockHours = Math.min(Math.max(hoursPerWeek, 1), 2)
               const teachingMinutes = blockHours * 45 + (blockHours - 1) * 15
@@ -305,6 +317,7 @@ export const generateTemplate = async (req: Request, res: Response) => {
                       studyMode: effectiveStudyMode,
                       weekType: 'EVERY' as const,
                       ...(capacityNote ? { note: capacityNote } : {}),
+                      ...(alreadyScheduled ? { alreadyScheduled: true } : {}),
                     })
 
                     markSlot(day, start, slotEnd)
