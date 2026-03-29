@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import { ClassType, DayOfWeek, StudyMode } from '@prisma/client'
+import { ClassType, DayOfWeek, StudyMode, WeekType } from '@prisma/client'
 import prisma from '../lib/prisma'
 
 const dayOfWeekMap: Record<number, DayOfWeek> = {
@@ -15,10 +15,17 @@ function isHolidayDate(date: Date, holidaySet: Set<string>): boolean {
   return holidaySet.has(dateToStr(date))
 }
 
-function isInStudyModeWindow(date: Date, studyMode: StudyMode): boolean {
+function isInStudyModeWindow(date: Date, studyMode: StudyMode, startTime?: string): boolean {
   const day = date.getDay()
   if (studyMode === 'FULL_TIME') return day >= 1 && day <= 5
-  return day === 0 || day === 5 || day === 6  // Pt, Sb, Nd
+  // PART_TIME: Sb (6) i Nd (0) od 07:00, Pt (5) tylko od 15:00
+  if (day === 6 || day === 0) return true
+  if (day === 5) {
+    if (!startTime) return true
+    const [h, m] = startTime.split(':').map(Number)
+    return (h ?? 0) * 60 + (m ?? 0) >= 15 * 60
+  }
+  return false
 }
 
 function getDatesForDayOfWeek(
@@ -48,6 +55,47 @@ function getDatesForDayOfWeek(
     weekNumber++
   }
   return dates
+}
+
+// ─── WeekType-aware slot tracking ────────────────────────────────────────────
+//
+// EVEN and ODD subjects occupy different calendar weeks and do NOT conflict.
+// EVERY subjects occupy all weeks and conflict with EVEN, ODD, and other EVERY.
+//
+// Key layout per time-slot t:
+//   "${prefix}-${t}-EVERY"  → blocked for EVERY subjects (anyone here blocks new EVERY)
+//   "${prefix}-${t}-EVEN"   → blocked for EVEN subjects
+//   "${prefix}-${t}-ODD"    → blocked for ODD subjects
+
+function markInSet(set: Set<string>, prefix: string, start: number, end: number, wt: WeekType): void {
+  for (let t = start; t < end; t += 30) {
+    const p = `${prefix}-${t}`
+    // Adding to EVERY slot always: anyone placed here blocks a new EVERY from using it
+    set.add(`${p}-EVERY`)
+    if (wt === 'EVERY') {
+      // EVERY occupies all weeks → blocks EVEN and ODD too
+      set.add(`${p}-EVEN`)
+      set.add(`${p}-ODD`)
+    } else {
+      // EVEN/ODD only occupies its own alternating weeks
+      set.add(`${p}-${wt}`)
+    }
+  }
+}
+
+function isFreeInSet(set: Set<string>, prefix: string, start: number, end: number, wt: WeekType): boolean {
+  for (let t = start; t < end; t += 30) {
+    const p = `${prefix}-${t}`
+    // Each key covers: EVERY=any occupant, EVEN=EVEN or EVERY occupant, ODD=ODD or EVERY occupant
+    // markInSet ensures:
+    //   EVERY placed → sets EVERY+EVEN+ODD
+    //   EVEN placed  → sets EVERY+EVEN   (ODD key stays clear → ODD can share)
+    //   ODD placed   → sets EVERY+ODD    (EVEN key stays clear → EVEN can share)
+    if (wt === 'EVERY' && set.has(`${p}-EVERY`)) return false
+    if (wt === 'EVEN'  && set.has(`${p}-EVEN`))  return false
+    if (wt === 'ODD'   && set.has(`${p}-ODD`))   return false
+  }
+  return true
 }
 
 // Automatyczna propozycja wzorca (nie zapisuje do bazy)
@@ -96,22 +144,25 @@ export const generateTemplate = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Brak specjalności dla podanych parametrów' })
     }
 
-    type TimeWindow = { days: number[]; start: number; end: number }
+    type DayWindow = { day: number; start: number; end: number }
 
-    const getTimeWindows = (mode: StudyMode): TimeWindow[] =>
+    const getDayWindows = (mode: StudyMode): DayWindow[] =>
       mode === 'FULL_TIME'
-        ? [{ days: [1, 2, 3, 4, 5], start: 7 * 60, end: 20 * 60 }]
+        ? [1, 2, 3, 4, 5].map(d => ({ day: d, start: 7 * 60, end: 20 * 60 }))
         : [
-            { days: [5], start: 15 * 60, end: 20 * 60 },
-            { days: [6, 0], start: 7 * 60, end: 20 * 60 },
+            { day: 5, start: 15 * 60, end: 20 * 60 },  // Piątek 15:00–20:00
+            { day: 6, start: 7 * 60,  end: 20 * 60 },  // Sobota 07:00–20:00
+            { day: 0, start: 7 * 60,  end: 20 * 60 },  // Niedziela 07:00–20:00
           ]
 
+    // Dla wykładów: preferujemy sale wykładowe, ale jeśli brak wolnych — fallback do sal ćwiczeniowych
+    // (obsługiwane przez sortowanie kandydatów: LECTURE > EXERCISE, z filtrem pojemności)
     const roomTypeMap: Record<ClassType, string[]> = {
-      LECTURE: ['LECTURE'],
-      EXERCISE: ['EXERCISE', 'LECTURE'],
-      LAB: ['LAB', 'COMPUTER_LAB'],
-      PROJECT: ['EXERCISE', 'COMPUTER_LAB', 'SEMINAR'],
-      SEMINAR: ['SEMINAR', 'EXERCISE'],
+      LECTURE:  ['LECTURE', 'EXERCISE'],
+      EXERCISE: ['EXERCISE'],
+      LAB:      ['LAB', 'COMPUTER_LAB'],
+      PROJECT:  ['EXERCISE', 'COMPUTER_LAB', 'SEMINAR'],
+      SEMINAR:  ['SEMINAR', 'EXERCISE'],
     }
 
     const minsFromStr = (t: string) => {
@@ -127,51 +178,59 @@ export const generateTemplate = async (req: Request, res: Response) => {
     const rooms = await prisma.room.findMany({ include: { building: { select: { name: true } } } })
     const instructors = await prisma.instructor.findMany({ select: { id: true, firstName: true, lastName: true } })
 
-    // Wspólne śledzenie sal i prowadzących (sala/prowadzący nie może być w dwóch miejscach naraz)
+    // Wspólne śledzenie sal i prowadzących (weekType-aware)
     const usedRoomSlots = new Set<string>()
     const usedInstructorSlots = new Set<string>()
 
-    const markRoom = (roomId: string, day: number, start: number, end: number) => {
-      for (let t = start; t < end; t += 30) usedRoomSlots.add(`${roomId}-${day}-${t}`)
-    }
-    const isRoomFree = (roomId: string, day: number, start: number, end: number) => {
-      for (let t = start; t < end; t += 30) if (usedRoomSlots.has(`${roomId}-${day}-${t}`)) return false
-      return true
-    }
-    const markInstructor = (instructorId: string, day: number, start: number, end: number) => {
-      for (let t = start; t < end; t += 30) usedInstructorSlots.add(`${instructorId}-${day}-${t}`)
-    }
-    const isInstructorFree = (instructorId: string, day: number, start: number, end: number) => {
-      for (let t = start; t < end; t += 30) if (usedInstructorSlots.has(`${instructorId}-${day}-${t}`)) return false
-      return true
-    }
+    const markRoom = (roomId: string, day: number, start: number, end: number, wt: WeekType) =>
+      markInSet(usedRoomSlots, `${roomId}-${day}`, start, end, wt)
+    const isRoomFree = (roomId: string, day: number, start: number, end: number, wt: WeekType) =>
+      isFreeInSet(usedRoomSlots, `${roomId}-${day}`, start, end, wt)
+    const markInstructor = (instructorId: string, day: number, start: number, end: number, wt: WeekType) =>
+      markInSet(usedInstructorSlots, `${instructorId}-${day}`, start, end, wt)
+    const isInstructorFree = (instructorId: string, day: number, start: number, end: number, wt: WeekType) =>
+      isFreeInSet(usedInstructorSlots, `${instructorId}-${day}`, start, end, wt)
 
-    // Pre-populate z już zapisanych szablonów
+    // Pre-populate z już zapisanych szablonów (ALL specs — ensures no conflicts at save time)
     const existingTemplates = await prisma.scheduleTemplate.findMany({
       where: { academicYear },
       select: {
         roomId: true, instructorId: true, dayOfWeek: true, startTime: true, endTime: true,
-        curriculumEntryId: true, classType: true, academicHours: true,
+        weekType: true, curriculumEntryId: true, classType: true, academicHours: true,
       },
     })
-    // Zbiór już zaplanowanych kombinacji (curriculumEntryId|classType) — pomijamy je w generatorze
+    // Zbiór już zaplanowanych kombinacji (curriculumEntryId|classType) — informacja dla UI
     const plannedHoursMap = new Map<string, number>()
     for (const tmpl of existingTemplates) {
       const key = `${tmpl.curriculumEntryId}|${tmpl.classType}`
       plannedHoursMap.set(key, (plannedHoursMap.get(key) ?? 0) + tmpl.academicHours)
+
       const day = dayNumberMap[tmpl.dayOfWeek]
       const start = minsFromStr(tmpl.startTime)
-      const end = minsFromStr(tmpl.endTime) + 15
-      markRoom(tmpl.roomId, day, start, end)
-      markInstructor(tmpl.instructorId, day, start, end)
+      const end = minsFromStr(tmpl.endTime)
+      const wt = (tmpl.weekType ?? 'EVERY') as WeekType
+      markRoom(tmpl.roomId, day, start, end, wt)
+      markInstructor(tmpl.instructorId, day, start, end, wt)
     }
 
     const teachingWeeks = 15
+
+    // Bazowe preferowane godziny startu wg typu zajęć
+    const basePreferredByType: Record<ClassType, number> = {
+      [ClassType.LECTURE]:  8 * 60,   // 08:00
+      [ClassType.EXERCISE]: 10 * 60,  // 10:00
+      [ClassType.LAB]:      12 * 60,  // 12:00
+      [ClassType.PROJECT]:  12 * 60,  // 12:00
+      [ClassType.SEMINAR]:  14 * 60,  // 14:00
+    }
+
+    // Licznik grup (spec+semestr) — każda grupa dostaje inne przesunięcie czasowe
+    let groupCounter = 0
+
     const allProposals: object[] = []
 
     // Generuj osobno dla każdej specjalności
     for (const spec of targetSpecs) {
-      // Pobierz wszystkie aktywne wersje planów (filtruj tryb tylko jeśli podany)
       const curriculumVersions = await prisma.curriculumVersion.findMany({
         where: {
           specialization: { id: spec.id },
@@ -191,7 +250,7 @@ export const generateTemplate = async (req: Request, res: Response) => {
 
       for (const cv of curriculumVersions) {
         const effectiveStudyMode = cv.studyMode
-        const timeWindows = getTimeWindows(effectiveStudyMode)
+        const dayWindows = getDayWindows(effectiveStudyMode)
 
         // Pogrupuj wpisy po semestrze
         const semesterMap = new Map<number, typeof cv.entries>()
@@ -201,19 +260,31 @@ export const generateTemplate = async (req: Request, res: Response) => {
         }
 
         for (const [effectiveSemester, entries] of semesterMap) {
-          // Osobne śledzenie slotów dla każdej kombinacji (spec, tryb, semestr)
-          const usedSlots = new Set<string>()
-          const markSlot = (day: number, start: number, end: number) => {
-            for (let t = start; t < end; t += 30) usedSlots.add(`${day}-${t}`)
+          // Śledzenie slotów osobno dla każdej grupy (po groupId) — weekType-aware.
+          // Dzięki temu ćwiczenia grupy C-A nie blokują wykładów grupy W.
+          const groupSlotSets = new Map<string, Set<string>>()
+          const getGroupSet = (groupId: string) => {
+            if (!groupSlotSets.has(groupId)) groupSlotSets.set(groupId, new Set())
+            return groupSlotSets.get(groupId)!
           }
-          const isSlotFree = (day: number, start: number, end: number) => {
-            for (let t = start; t < end; t += 30) if (usedSlots.has(`${day}-${t}`)) return false
-            return true
-          }
+          const markGroupSlot = (groupId: string, day: number, start: number, end: number, wt: WeekType) =>
+            markInSet(getGroupSet(groupId), `${day}`, start, end, wt)
+          const isGroupSlotFree = (groupId: string, day: number, start: number, end: number, wt: WeekType) =>
+            isFreeInSet(getGroupSet(groupId), `${day}`, start, end, wt)
 
-          const groups = await prisma.studentGroup.findMany({
+          // Licznik zajęć na dzień — do równomiernego rozkładu
+          const dayLoad = new Map<number, number>()
+
+          // Przesunięcie czasowe dla tej grupy: krok 150 min, modulo 780 min (13h okno)
+          const groupTimeOffset = (groupCounter * 150) % 780
+          groupCounter++
+
+          const allSpecGroups = await prisma.studentGroup.findMany({
             where: { specializationId: spec.id, semester: effectiveSemester, academicYear },
           })
+          const groups = allSpecGroups.filter(g =>
+            effectiveStudyMode === 'PART_TIME' ? g.name.includes('-SN-') : !g.name.includes('-SN-')
+          )
           if (groups.length === 0) continue
 
           const lectureGroup = groups.find(g => g.type === 'LECTURE')
@@ -235,14 +306,25 @@ export const generateTemplate = async (req: Request, res: Response) => {
               { type: ClassType.SEMINAR,  hours: entry.hoursSeminar },
             ].filter(ct => ct.hours > 0)
 
+            let evenOddCounter = 0
+
             for (const { type, hours } of classTypes) {
               const plannedKey = `${entry.id}|${type}`
               const alreadyPlanned = plannedHoursMap.get(plannedKey) ?? 0
-              // Flaga: czy ta kombinacja ma już szablon (ale nie blokujemy — użytkownik może chcieć dodać kolejny slot)
               const alreadyScheduled = alreadyPlanned > 0
 
-              const hoursPerWeek = Math.ceil(hours / teachingWeeks)
-              const blockHours = Math.min(Math.max(hoursPerWeek, 1), 2)
+              const hoursPerWeekRaw = hours / teachingWeeks
+              // Subjects ≤1h/week → EVEN/ODD with 2h block (more practical than 1×45min weekly)
+              let blockHours: number
+              let weekType: WeekType
+              if (hoursPerWeekRaw < 1.0 && hours > 1) {
+                blockHours = 2
+                weekType = evenOddCounter % 2 === 0 ? 'EVEN' : 'ODD'
+                evenOddCounter++
+              } else {
+                blockHours = Math.min(Math.max(Math.ceil(hoursPerWeekRaw), 1), 2)
+                weekType = 'EVERY'
+              }
               const teachingMinutes = blockHours * 45 + (blockHours - 1) * 15
               const slotMinutes = teachingMinutes + 15
 
@@ -250,86 +332,127 @@ export const generateTemplate = async (req: Request, res: Response) => {
               const assignedGroup = groupByType[type]
               const effectiveGroupSize = assignedGroup?.size ?? defaultSize
 
-              // Rooms of the correct type, sorted by capacity ascending (prefer tightest fit)
+              // Rooms of the correct type, sorted by capacity ascending (prefer tightest fit).
+              // For LECTURE: LECTURE rooms come before EXERCISE rooms of equal capacity
+              // so that exercise rooms are a true fallback.
               const roomsOfCorrectType = rooms
                 .filter(r => allowedRoomTypes.includes(r.type))
-                .sort((a, b) => a.capacity - b.capacity)
-              // Ideal: capacity >= group size; fallback: largest available room of correct type
+                .sort((a, b) => {
+                  if (type === ClassType.LECTURE) {
+                    const aIsLecture = a.type === 'LECTURE' ? 0 : 1
+                    const bIsLecture = b.type === 'LECTURE' ? 0 : 1
+                    if (aIsLecture !== bIsLecture) return aIsLecture - bIsLecture
+                  }
+                  return a.capacity - b.capacity
+                })
               const idealRooms = roomsOfCorrectType.filter(r => r.capacity >= effectiveGroupSize)
               const candidateRooms = idealRooms.length > 0
                 ? idealRooms
                 : [...roomsOfCorrectType].sort((a, b) => b.capacity - a.capacity)
 
-              let found = false
-              let capacityNote: string | null = null
-              outer:
-              for (const window of timeWindows) {
-                for (const day of window.days) {
-                  for (let start = window.start; start + slotMinutes <= window.end; start += 30) {
-                    const slotEnd = start + slotMinutes
-                    const teachingEnd = start + teachingMinutes
-                    if (!isSlotFree(day, start, slotEnd)) continue
-                    const freeRoom = candidateRooms.find(r => isRoomFree(r.id, day, start, slotEnd))
-                    if (!freeRoom) continue
-                    if (freeRoom.capacity < effectiveGroupSize) {
-                      capacityNote = `Sala ${freeRoom.number} (poj. ${freeRoom.capacity}) < wielkość grupy (${effectiveGroupSize})`
-                    }
+              // Zbierz wszystkie kandydackie sloty (wolna sala + wolna grupa)
+              type SlotCandidate = { day: number; start: number; freeRoom: typeof rooms[number] }
+              const slotCandidates: SlotCandidate[] = []
 
-                    let instructorId = entry.instructorId ?? null
-                    let instructorName: string | null = null
-                    if (instructorId) {
-                      const instr = instructors.find(i => i.id === instructorId)
-                      if (instr && !isInstructorFree(instr.id, day, start, slotEnd)) {
-                        // Prowadzący z siatki zajęty — znajdź innego wolnego
-                        const alt = instructors.find(i => i.id !== instructorId && isInstructorFree(i.id, day, start, slotEnd))
-                        instructorId = alt?.id ?? null
-                        instructorName = alt ? `${alt.firstName} ${alt.lastName}` : null
-                      } else {
-                        instructorName = instr ? `${instr.firstName} ${instr.lastName}` : null
-                      }
-                    } else {
-                      const freeInstructor = instructors.find(i => isInstructorFree(i.id, day, start, slotEnd))
-                      if (freeInstructor) {
-                        instructorId = freeInstructor.id
-                        instructorName = `${freeInstructor.firstName} ${freeInstructor.lastName}`
-                      }
-                    }
+              const sortedDayWindows = [...dayWindows].sort(
+                (a, b) => (dayLoad.get(a.day) ?? 0) - (dayLoad.get(b.day) ?? 0)
+              )
+              for (const { day, start: winStart, end: winEnd } of sortedDayWindows) {
+                const windowLen = winEnd - winStart
+                const base = ((basePreferredByType[type] ?? winStart) - winStart + windowLen) % windowLen
+                const preferredRaw = winStart + (base + groupTimeOffset) % windowLen
+                const preferred = Math.max(winStart, Math.floor(preferredRaw / 60) * 60)
 
-                    allProposals.push({
-                      specializationId: spec.id,
-                      specializationName: spec.name,
-                      curriculumEntryId: entry.id,
-                      subjectName: entry.subject.name,
-                      classType: type,
-                      academicHours: blockHours,
-                      dayOfWeek: dayOfWeekMap[day],
-                      startTime: toTime(start),
-                      endTime: toTime(teachingEnd),
-                      roomId: freeRoom.id,
-                      roomNumber: freeRoom.number,
-                      buildingName: freeRoom.building.name,
-                      instructorId,
-                      instructorName,
-                      studentGroupId: assignedGroup?.id ?? null,
-                      studentGroupName: assignedGroup?.name ?? null,
-                      semester: effectiveSemester,
-                      academicYear,
-                      studyMode: effectiveStudyMode,
-                      weekType: 'EVERY' as const,
-                      ...(capacityNote ? { note: capacityNote } : {}),
-                      ...(alreadyScheduled ? { alreadyScheduled: true } : {}),
-                    })
+                const slotsToTry: number[] = []
+                for (let s = preferred; s + slotMinutes <= winEnd; s += 60) slotsToTry.push(s)
+                for (let s = winStart; s < preferred; s += 60) {
+                  if (s + slotMinutes <= winEnd) slotsToTry.push(s)
+                }
 
-                    markSlot(day, start, slotEnd)
-                    markRoom(freeRoom.id, day, start, slotEnd)
-                    if (instructorId) markInstructor(instructorId, day, start, slotEnd)
-                    found = true
-                    break outer
-                  }
+                for (const start of slotsToTry) {
+                  const slotEnd = start + slotMinutes
+                  if (assignedGroup && !isGroupSlotFree(assignedGroup.id, day, start, slotEnd, weekType)) continue
+                  const freeRoom = candidateRooms.find(r => isRoomFree(r.id, day, start, slotEnd, weekType))
+                  if (!freeRoom) continue
+                  slotCandidates.push({ day, start, freeRoom })
                 }
               }
 
-              if (!found) {
+              // Faza 1: szukaj slotu gdzie można przypisać prowadzącego
+              type Chosen = { day: number; start: number; freeRoom: typeof rooms[number]; instrId: string | null; instrName: string | null }
+              let chosen: Chosen | null = null
+
+              for (const { day, start, freeRoom } of slotCandidates) {
+                const slotEnd = start + slotMinutes
+                let instrId: string | null = entry.instructorId ?? null
+                let instrName: string | null = null
+
+                if (instrId) {
+                  if (isInstructorFree(instrId, day, start, slotEnd, weekType)) {
+                    const instr = instructors.find(i => i.id === instrId)
+                    instrName = instr ? `${instr.firstName} ${instr.lastName}` : null
+                  } else {
+                    // Przypisany zajęty — szukaj wolnego zastępcy
+                    const alt = instructors.find(i => i.id !== instrId && isInstructorFree(i.id, day, start, slotEnd, weekType))
+                    instrId = alt?.id ?? null
+                    instrName = alt ? `${alt.firstName} ${alt.lastName}` : null
+                  }
+                } else {
+                  const free = instructors.find(i => isInstructorFree(i.id, day, start, slotEnd, weekType))
+                  instrId = free?.id ?? null
+                  instrName = free ? `${free.firstName} ${free.lastName}` : null
+                }
+
+                if (instrId !== null) {
+                  chosen = { day, start, freeRoom, instrId, instrName }
+                  break
+                }
+              }
+
+              // Faza 2: fallback — weź pierwszy dostępny slot (sala + grupa), bez prowadzącego
+              if (!chosen && slotCandidates.length > 0) {
+                const { day, start, freeRoom } = slotCandidates[0]!
+                chosen = { day, start, freeRoom, instrId: null, instrName: null }
+              }
+
+              if (chosen) {
+                const { day, start, freeRoom, instrId, instrName } = chosen
+                const slotEnd = start + slotMinutes
+                let capacityNote: string | null = null
+                if (freeRoom.capacity < effectiveGroupSize) {
+                  capacityNote = `Sala ${freeRoom.number} (poj. ${freeRoom.capacity}) < wielkość grupy (${effectiveGroupSize})`
+                }
+
+                allProposals.push({
+                  specializationId: spec.id,
+                  specializationName: spec.name,
+                  curriculumEntryId: entry.id,
+                  subjectName: entry.subject.name,
+                  classType: type,
+                  academicHours: blockHours,
+                  dayOfWeek: dayOfWeekMap[day],
+                  startTime: toTime(start),
+                  endTime: toTime(start + slotMinutes),
+                  roomId: freeRoom.id,
+                  roomNumber: freeRoom.number,
+                  buildingName: freeRoom.building.name,
+                  instructorId: instrId,
+                  instructorName: instrName,
+                  studentGroupId: assignedGroup?.id ?? null,
+                  studentGroupName: assignedGroup?.name ?? null,
+                  semester: effectiveSemester,
+                  academicYear,
+                  studyMode: effectiveStudyMode,
+                  weekType,
+                  ...(capacityNote ? { note: capacityNote } : {}),
+                  ...(alreadyScheduled ? { alreadyScheduled: true } : {}),
+                })
+
+                if (assignedGroup) markGroupSlot(assignedGroup.id, day, start, slotEnd, weekType)
+                markRoom(freeRoom.id, day, start, slotEnd, weekType)
+                if (instrId) markInstructor(instrId, day, start, slotEnd, weekType)
+                dayLoad.set(day, (dayLoad.get(day) ?? 0) + 1)
+              } else {
                 const warning = roomsOfCorrectType.length === 0
                   ? `Brak sal typu ${allowedRoomTypes.join('/')} w bazie`
                   : 'Wszystkie sale i prowadzący zajęci w oknie czasowym'
@@ -363,19 +486,45 @@ export const generateTemplate = async (req: Request, res: Response) => {
 }
 
 // Generowanie konkretnych terminów z szablonów
+// Domyślne daty semestru wg roku akademickiego (np. "2024/2025") i semestru
+function deriveCalendarDates(academicYear: string, semesterType: 'WINTER' | 'SUMMER', studyMode: StudyMode) {
+  const firstYear = parseInt(academicYear.split('/')[0] ?? '2024')
+  const secondYear = firstYear + 1
+
+  if (semesterType === 'WINTER') {
+    return {
+      startDate: new Date(`${firstYear}-10-01`),
+      endDate:   new Date(`${secondYear}-02-02`),
+      teachingWeeks: studyMode === 'FULL_TIME' ? 15 : 10,
+    }
+  } else {
+    return {
+      startDate: new Date(`${secondYear}-02-17`),
+      endDate:   new Date(`${secondYear}-06-22`),
+      teachingWeeks: studyMode === 'FULL_TIME' ? 15 : 10,
+    }
+  }
+}
+
 export const generateSemester = async (req: Request, res: Response) => {
   try {
-    const { templateIds, calendarId } = req.body as {
+    const { templateIds, academicYear, semesterType, studyMode } = req.body as {
       templateIds: string[]
-      calendarId: string
+      academicYear: string
+      semesterType: 'WINTER' | 'SUMMER'
+      studyMode: StudyMode
     }
 
-    if (!templateIds?.length || !calendarId) {
-      return res.status(400).json({ error: 'Brakujące wymagane pola: templateIds, calendarId' })
+    if (!templateIds?.length || !academicYear || !semesterType || !studyMode) {
+      return res.status(400).json({ error: 'Brakujące wymagane pola: templateIds, academicYear, semesterType, studyMode' })
     }
 
-    const calendar = await prisma.semesterCalendar.findUnique({ where: { id: calendarId } })
-    if (!calendar) return res.status(404).json({ error: 'Kalendarz nie znaleziony' })
+    // Szukaj SemesterCalendar, jeśli nie ma — użyj domyślnych dat
+    const savedCalendar = await prisma.semesterCalendar.findFirst({
+      where: { academicYear, semesterType, studyMode },
+    })
+    const { startDate, endDate } = savedCalendar ?? deriveCalendarDates(academicYear, semesterType, studyMode)
+    const calendar = { startDate, endDate, studyMode }
 
     const holidays = await prisma.publicHoliday.findMany({
       where: { date: { gte: calendar.startDate, lte: calendar.endDate } },
@@ -398,14 +547,35 @@ export const generateSemester = async (req: Request, res: Response) => {
         template.weekType,
       )
 
+      // Sprawdź limit godzin z siatki przed generowaniem
+      const currEntry = await prisma.curriculumEntry.findUnique({ where: { id: template.curriculumEntryId } })
+      let hoursLimit = Infinity
+      if (currEntry) {
+        const limitMap: Record<string, number> = {
+          LECTURE: currEntry.hoursLecture, EXERCISE: currEntry.hoursExercise,
+          LAB: currEntry.hoursLab, PROJECT: currEntry.hoursProject, SEMINAR: currEntry.hoursSeminar,
+        }
+        hoursLimit = limitMap[template.classType] ?? Infinity
+      }
+      const existingHoursAgg = await prisma.scheduleEntry.aggregate({
+        where: { curriculumEntryId: template.curriculumEntryId, classType: template.classType, status: { not: 'CANCELLED' } },
+        _sum: { academicHours: true },
+      })
+      let accumulatedHours = existingHoursAgg._sum.academicHours ?? 0
+
       for (const date of dates) {
         if (isHolidayDate(date, holidaySet)) {
           skipped.push({ templateId: template.id, date: date.toISOString(), reason: 'HOLIDAY' })
           continue
         }
 
-        if (!isInStudyModeWindow(date, calendar.studyMode)) {
+        if (!isInStudyModeWindow(date, calendar.studyMode, template.startTime)) {
           skipped.push({ templateId: template.id, date: date.toISOString(), reason: 'OUT_OF_WINDOW' })
+          continue
+        }
+
+        if (accumulatedHours + template.academicHours > hoursLimit) {
+          skipped.push({ templateId: template.id, date: date.toISOString(), reason: 'HOURS_EXCEEDED' })
           continue
         }
 
@@ -462,6 +632,7 @@ export const generateSemester = async (req: Request, res: Response) => {
             status: 'SCHEDULED',
           },
         })
+        accumulatedHours += template.academicHours
         created.push(entry)
       }
     }

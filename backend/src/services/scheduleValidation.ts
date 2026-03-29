@@ -3,7 +3,7 @@ import prisma from '../lib/prisma'
 
 // Mapowanie: typ zajęć → dopuszczalne typy sal
 const roomTypeMap: Record<ClassType, RoomType[]> = {
-  LECTURE:  [RoomType.LECTURE],
+  LECTURE:  [RoomType.LECTURE, RoomType.EXERCISE],
   EXERCISE: [RoomType.EXERCISE, RoomType.LECTURE],
   LAB:      [RoomType.LAB, RoomType.COMPUTER_LAB],
   PROJECT:  [RoomType.EXERCISE, RoomType.COMPUTER_LAB, RoomType.SEMINAR],
@@ -35,6 +35,7 @@ export type ValidationError =
   | { code: 'INSTRUCTOR_CONFLICT'; details: { conflictId: string; dayOfWeek?: string; date?: string; startTime: string; endTime: string } }
   | { code: 'GROUP_CONFLICT'; details: { conflictId: string; date?: string; startTime: string; endTime: string } }
   | { code: 'WRONG_ROOM_TYPE'; details: { roomType: RoomType; classType: ClassType; allowed: RoomType[] } }
+  | { code: 'TIME_WINDOW_VIOLATION'; details: { dayOfWeek: string; startTime: string; studyMode: string; allowed: string } }
 
 export type TemplateDto = {
   curriculumEntryId: string
@@ -42,13 +43,16 @@ export type TemplateDto = {
   academicHours: number
   roomId: string
   instructorId: string
+  studentGroupId?: string | null
   dayOfWeek: string
   startTime: string
   endTime: string
   semester: number
   academicYear: string
   weekType?: string
+  studyMode?: string
   excludeId?: string
+  skipHoursCheck?: boolean
 }
 
 export type EntryConflictDto = {
@@ -59,34 +63,60 @@ export type EntryConflictDto = {
   instructorId: string
   studentGroupId?: string | null
   excludeId?: string
+  // Opcjonalne — do sprawdzenia limitu godzin z siatki
+  curriculumEntryId?: string
+  classType?: ClassType
+  academicHours?: number
+}
+
+function minsFromTime(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return (h ?? 0) * 60 + (m ?? 0)
 }
 
 // Walidacja szablonu (wzorzec tygodniowy)
 export async function validateTemplateEntry(dto: TemplateDto): Promise<ValidationError | null> {
-  // 1. Sprawdź limit godzin z siatki
-  const currEntry = await prisma.curriculumEntry.findUnique({
-    where: { id: dto.curriculumEntryId },
-  })
-  if (!currEntry) return null
+  // 0. Sprawdź okno czasowe trybu studiów
+  if (dto.studyMode === 'PART_TIME') {
+    const dayMap: Record<string, number> = { MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5, SATURDAY: 6, SUNDAY: 0 }
+    const day = dayMap[dto.dayOfWeek] ?? -1
+    const startMins = minsFromTime(dto.startTime)
+    const endMins = minsFromTime(dto.endTime)
+    const violation = (allowed: string): ValidationError => ({
+      code: 'TIME_WINDOW_VIOLATION',
+      details: { dayOfWeek: dto.dayOfWeek, startTime: dto.startTime, studyMode: 'PART_TIME', allowed },
+    })
+    if (day >= 1 && day <= 4) return violation('Pt 15:00–20:00, Sb/Nd 07:00–20:00')
+    if (day === 5 && (startMins < 15 * 60 || endMins > 20 * 60)) return violation('Piątek 15:00–20:00')
+    if ((day === 6 || day === 0) && (startMins < 7 * 60 || endMins > 20 * 60)) return violation('Sobota/Niedziela 07:00–20:00')
+  }
 
-  const limit = getHoursLimit(currEntry, dto.classType)
+  // 1. Sprawdź limit godzin z siatki (pomijamy przy update gdy godziny się nie zmieniają)
+  if (!dto.skipHoursCheck) {
+    const currEntry = await prisma.curriculumEntry.findUnique({
+      where: { id: dto.curriculumEntryId },
+    })
+    if (!currEntry) return null
 
-  const planned = await prisma.scheduleTemplate.aggregate({
-    where: {
-      curriculumEntryId: dto.curriculumEntryId,
-      classType: dto.classType,
-      semester: dto.semester,
-      academicYear: dto.academicYear,
-      ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
-    },
-    _sum: { academicHours: true },
-  })
+    const limit = getHoursLimit(currEntry, dto.classType)
 
-  const alreadyPlanned = planned._sum.academicHours ?? 0
-  if (alreadyPlanned + dto.academicHours > limit) {
-    return {
-      code: 'HOURS_EXCEEDED',
-      details: { classType: dto.classType, limit, alreadyPlanned, requested: dto.academicHours, remaining: limit - alreadyPlanned },
+    const planned = await prisma.scheduleTemplate.aggregate({
+      where: {
+        curriculumEntryId: dto.curriculumEntryId,
+        classType: dto.classType,
+        semester: dto.semester,
+        academicYear: dto.academicYear,
+        ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
+      },
+      _sum: { academicHours: true },
+    })
+
+    const alreadyPlanned = planned._sum.academicHours ?? 0
+    if (alreadyPlanned + dto.academicHours > limit) {
+      return {
+        code: 'HOURS_EXCEEDED',
+        details: { classType: dto.classType, limit, alreadyPlanned, requested: dto.academicHours, remaining: limit - alreadyPlanned },
+      }
     }
   }
 
@@ -99,13 +129,21 @@ export async function validateTemplateEntry(dto: TemplateDto): Promise<Validatio
     }
   }
 
-  // 3. Konflikt sali w szablonach
+  // Typy tygodnia które NIE kolidują z nowym szablonem:
+  // EVEN i ODD nie nakładają się → mogą dzielić salę/prowadzącego
+  const newWeekType = dto.weekType ?? 'EVERY'
+  const compatibleWeekTypes: string[] = []
+  if (newWeekType === 'EVEN') compatibleWeekTypes.push('ODD')
+  if (newWeekType === 'ODD') compatibleWeekTypes.push('EVEN')
+
+  // 3. Konflikt sali w szablonach (uwzględnia EVEN/ODD)
   const roomConflict = await prisma.scheduleTemplate.findFirst({
     where: {
       roomId: dto.roomId,
       dayOfWeek: dto.dayOfWeek as never,
       academicYear: dto.academicYear,
       AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
+      ...(compatibleWeekTypes.length > 0 ? { weekType: { notIn: compatibleWeekTypes as never[] } } : {}),
       ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
     },
   })
@@ -116,13 +154,14 @@ export async function validateTemplateEntry(dto: TemplateDto): Promise<Validatio
     }
   }
 
-  // 4. Konflikt prowadzącego w szablonach
+  // 4. Konflikt prowadzącego w szablonach (uwzględnia EVEN/ODD)
   const instructorConflict = await prisma.scheduleTemplate.findFirst({
     where: {
       instructorId: dto.instructorId,
       dayOfWeek: dto.dayOfWeek as never,
       academicYear: dto.academicYear,
       AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
+      ...(compatibleWeekTypes.length > 0 ? { weekType: { notIn: compatibleWeekTypes as never[] } } : {}),
       ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
     },
   })
@@ -133,11 +172,55 @@ export async function validateTemplateEntry(dto: TemplateDto): Promise<Validatio
     }
   }
 
+  // 5. Konflikt grupy w szablonach (uwzględnia EVEN/ODD)
+  if (dto.studentGroupId) {
+    const groupConflict = await prisma.scheduleTemplate.findFirst({
+      where: {
+        studentGroupId: dto.studentGroupId,
+        dayOfWeek: dto.dayOfWeek as never,
+        academicYear: dto.academicYear,
+        AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
+        ...(compatibleWeekTypes.length > 0 ? { weekType: { notIn: compatibleWeekTypes as never[] } } : {}),
+        ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
+      },
+    })
+    if (groupConflict) {
+      return {
+        code: 'GROUP_CONFLICT',
+        details: { conflictId: groupConflict.id, dayOfWeek: groupConflict.dayOfWeek, startTime: groupConflict.startTime, endTime: groupConflict.endTime },
+      }
+    }
+  }
+
   return null
 }
 
 // Walidacja konfliktów dla konkretnych wpisów (date-based)
 export async function validateEntryConflicts(dto: EntryConflictDto): Promise<ValidationError | null> {
+  // 0. Sprawdź limit godzin z siatki (tylko przy ręcznym dodawaniu wpisu)
+  if (dto.curriculumEntryId && dto.classType && dto.academicHours) {
+    const currEntry = await prisma.curriculumEntry.findUnique({ where: { id: dto.curriculumEntryId } })
+    if (currEntry) {
+      const limit = getHoursLimit(currEntry, dto.classType)
+      const planned = await prisma.scheduleEntry.aggregate({
+        where: {
+          curriculumEntryId: dto.curriculumEntryId,
+          classType: dto.classType,
+          status: { not: 'CANCELLED' },
+          ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
+        },
+        _sum: { academicHours: true },
+      })
+      const alreadyPlanned = planned._sum.academicHours ?? 0
+      if (alreadyPlanned + dto.academicHours > limit) {
+        return {
+          code: 'HOURS_EXCEEDED',
+          details: { classType: dto.classType, limit, alreadyPlanned, requested: dto.academicHours, remaining: limit - alreadyPlanned },
+        }
+      }
+    }
+  }
+
   const roomConflict = await prisma.scheduleEntry.findFirst({
     where: {
       roomId: dto.roomId,

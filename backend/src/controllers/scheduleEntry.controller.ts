@@ -84,6 +84,9 @@ export const create = async (req: Request, res: Response) => {
       roomId,
       instructorId,
       studentGroupId,
+      curriculumEntryId,
+      classType,
+      academicHours,
     })
     if (conflict) {
       return res.status(409).json({ error: conflict.code, details: conflict.details })

@@ -81,10 +81,10 @@ export const create = async (req: Request, res: Response) => {
     const currEntry = await prisma.curriculumEntry.findUnique({ where: { id: curriculumEntryId } })
     if (!currEntry) return res.status(404).json({ error: 'Wpis siatki godzin nie znaleziony' })
 
-    const dto: TemplateDto = { curriculumEntryId, classType, academicHours, roomId, instructorId, dayOfWeek, startTime, endTime, semester, academicYear }
+    const dto: TemplateDto = { curriculumEntryId, classType, academicHours, roomId, instructorId, studentGroupId, dayOfWeek, startTime, endTime, semester, academicYear, weekType: weekType ?? 'EVERY', studyMode: studyMode ?? 'FULL_TIME' }
     const validationError = await validateTemplateEntry(dto)
     if (validationError) {
-      const statusCode = validationError.code === 'HOURS_EXCEEDED' ? 422 : validationError.code === 'WRONG_ROOM_TYPE' ? 400 : 409
+      const statusCode = validationError.code === 'HOURS_EXCEEDED' ? 422 : validationError.code === 'WRONG_ROOM_TYPE' || validationError.code === 'TIME_WINDOW_VIOLATION' ? 400 : 409
       return res.status(statusCode).json({ error: validationError.code, details: validationError.details })
     }
 
@@ -122,17 +122,21 @@ export const update = async (req: Request, res: Response) => {
       academicHours: academicHours ?? existing.academicHours,
       roomId: roomId ?? existing.roomId,
       instructorId: instructorId ?? existing.instructorId,
+      studentGroupId: studentGroupId !== undefined ? studentGroupId : existing.studentGroupId,
       dayOfWeek: dayOfWeek ?? existing.dayOfWeek,
       startTime: startTime ?? existing.startTime,
       endTime: endTime ?? existing.endTime,
       semester: semester ?? existing.semester,
       academicYear: academicYear ?? existing.academicYear,
+      weekType: weekType ?? existing.weekType,
+      studyMode: studyMode ?? existing.studyMode,
       excludeId: req.params.id,
+      skipHoursCheck: academicHours === undefined,
     }
 
     const validationError = await validateTemplateEntry(dto)
     if (validationError) {
-      const statusCode = validationError.code === 'HOURS_EXCEEDED' ? 422 : validationError.code === 'WRONG_ROOM_TYPE' ? 400 : 409
+      const statusCode = validationError.code === 'HOURS_EXCEEDED' ? 422 : validationError.code === 'WRONG_ROOM_TYPE' || validationError.code === 'TIME_WINDOW_VIOLATION' ? 400 : 409
       return res.status(statusCode).json({ error: validationError.code, details: validationError.details })
     }
 
