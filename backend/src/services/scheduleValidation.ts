@@ -52,7 +52,6 @@ export type TemplateDto = {
   weekType?: string
   studyMode?: string
   excludeId?: string
-  skipHoursCheck?: boolean
 }
 
 export type EntryConflictDto = {
@@ -91,36 +90,7 @@ export async function validateTemplateEntry(dto: TemplateDto): Promise<Validatio
     if ((day === 6 || day === 0) && (startMins < 7 * 60 || endMins > 20 * 60)) return violation('Sobota/Niedziela 07:00–20:00')
   }
 
-  // 1. Sprawdź limit godzin z siatki (pomijamy przy update gdy godziny się nie zmieniają)
-  if (!dto.skipHoursCheck) {
-    const currEntry = await prisma.curriculumEntry.findUnique({
-      where: { id: dto.curriculumEntryId },
-    })
-    if (!currEntry) return null
-
-    const limit = getHoursLimit(currEntry, dto.classType)
-
-    const planned = await prisma.scheduleTemplate.aggregate({
-      where: {
-        curriculumEntryId: dto.curriculumEntryId,
-        classType: dto.classType,
-        semester: dto.semester,
-        academicYear: dto.academicYear,
-        ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
-      },
-      _sum: { academicHours: true },
-    })
-
-    const alreadyPlanned = planned._sum.academicHours ?? 0
-    if (alreadyPlanned + dto.academicHours > limit) {
-      return {
-        code: 'HOURS_EXCEEDED',
-        details: { classType: dto.classType, limit, alreadyPlanned, requested: dto.academicHours, remaining: limit - alreadyPlanned },
-      }
-    }
-  }
-
-  // 2. Sprawdź typ sali
+  // 1. Sprawdź typ sali
   const room = await prisma.room.findUnique({ where: { id: dto.roomId } })
   if (room) {
     const allowed = roomTypeMap[dto.classType]

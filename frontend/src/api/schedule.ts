@@ -98,7 +98,7 @@ export const scheduleApi = {
   deleteEntry: (id: string, cancel?: boolean) =>
     client.delete(`/schedule/entries/${id}`, { params: cancel ? { cancel: 'true' } : undefined }),
 
-  deleteEntries: (params: { from?: string; to?: string; studentGroupId?: string; instructorId?: string }) =>
+  deleteEntries: (params: { from?: string; to?: string; studentGroupId?: string; instructorId?: string; templateId?: string }) =>
     client.delete<{ data: { deleted: number } }>('/schedule/entries', { params }),
 
   moveEntry: (id: string, data: {

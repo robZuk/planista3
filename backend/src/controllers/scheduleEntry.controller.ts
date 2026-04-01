@@ -26,8 +26,8 @@ export const getAll = async (req: Request, res: Response) => {
 
     const data = await prisma.scheduleEntry.findMany({
       where: {
-        ...(from ? { date: { gte: new Date(String(from)) } } : {}),
-        ...(to ? { date: { lte: new Date(String(to)) } } : {}),
+        ...(from ? { date: { gte: new Date(String(from) + 'T00:00:00.000Z') } } : {}),
+        ...(to ? { date: { lte: new Date(String(to) + 'T23:59:59.999Z') } } : {}),
         ...(studentGroupId ? { studentGroupId: String(studentGroupId) } : {}),
         ...(instructorId ? { instructorId: String(instructorId) } : {}),
         ...(status ? { status: status as 'SCHEDULED' | 'CANCELLED' | 'MAKEUP' } : {}),
@@ -183,13 +183,14 @@ export const remove = async (req: Request, res: Response) => {
 
 export const removeMany = async (req: Request, res: Response) => {
   try {
-    const { from, to, studentGroupId, instructorId } = req.query
+    const { from, to, studentGroupId, instructorId, templateId } = req.query
     const { count } = await prisma.scheduleEntry.deleteMany({
       where: {
-        ...(from ? { date: { gte: new Date(String(from)) } } : {}),
-        ...(to ? { date: { lte: new Date(String(to)) } } : {}),
+        ...(from ? { date: { gte: new Date(String(from) + 'T00:00:00.000Z') } } : {}),
+        ...(to ? { date: { lte: new Date(String(to) + 'T23:59:59.999Z') } } : {}),
         ...(studentGroupId ? { studentGroupId: String(studentGroupId) } : {}),
         ...(instructorId ? { instructorId: String(instructorId) } : {}),
+        ...(templateId ? { templateId: String(templateId) } : {}),
       },
     })
     res.json({ data: { deleted: count } })
@@ -223,20 +224,20 @@ export const move = async (req: Request, res: Response) => {
     const targetRoomId = newRoomId ?? existing.roomId
     const targetInstructorId = newInstructorId ?? existing.instructorId
 
-    const conflict = await validateEntryConflicts({
-      date: targetDate,
-      startTime: newStartTime,
-      endTime: newEndTime,
-      roomId: targetRoomId,
-      instructorId: targetInstructorId,
-      studentGroupId: existing.studentGroupId,
-      excludeId: req.params.id,
-    })
-    if (conflict) {
-      return res.status(409).json({ error: conflict.code, details: conflict.details })
-    }
-
     if (scope === 'ONE') {
+      const conflict = await validateEntryConflicts({
+        date: targetDate,
+        startTime: newStartTime,
+        endTime: newEndTime,
+        roomId: targetRoomId,
+        instructorId: targetInstructorId,
+        studentGroupId: existing.studentGroupId,
+        excludeId: req.params.id,
+      })
+      if (conflict) {
+        return res.status(409).json({ error: conflict.code, details: conflict.details })
+      }
+
       const data = await prisma.scheduleEntry.update({
         where: { id: req.params.id },
         data: {
@@ -256,11 +257,80 @@ export const move = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Brak szablonu — nie można zmienić wszystkich terminów' })
     }
 
+    const fromDate = new Date(existing.date)
+    fromDate.setUTCHours(0, 0, 0, 0)
+
+    const futureEntries = await prisma.scheduleEntry.findMany({
+      where: {
+        templateId: existing.templateId,
+        date: { gte: fromDate },
+        status: { not: 'CANCELLED' },
+      },
+      orderBy: { date: 'asc' },
+    })
+
+    const targetDayNum = targetDate.getUTCDay()
+    const futureIds = futureEntries.map(e => e.id)
+    const futureDates = futureEntries.map(entry => {
+      const d = new Date(entry.date)
+      d.setUTCDate(d.getUTCDate() + (targetDayNum - d.getUTCDay()))
+      d.setUTCHours(0, 0, 0, 0)
+      return d
+    })
+
+    // Walidacja kolizji dla wszystkich przyszłych dat jednym zapytaniem per typ
+    const roomConflict = await prisma.scheduleEntry.findFirst({
+      where: {
+        roomId: targetRoomId,
+        date: { in: futureDates },
+        AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
+        id: { notIn: futureIds },
+      },
+    })
+    if (roomConflict) {
+      return res.status(409).json({
+        error: 'ROOM_CONFLICT',
+        details: { conflictId: roomConflict.id, date: roomConflict.date.toISOString(), startTime: roomConflict.startTime, endTime: roomConflict.endTime },
+      })
+    }
+
+    const instructorConflict = await prisma.scheduleEntry.findFirst({
+      where: {
+        instructorId: targetInstructorId,
+        date: { in: futureDates },
+        AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
+        id: { notIn: futureIds },
+      },
+    })
+    if (instructorConflict) {
+      return res.status(409).json({
+        error: 'INSTRUCTOR_CONFLICT',
+        details: { conflictId: instructorConflict.id, date: instructorConflict.date.toISOString(), startTime: instructorConflict.startTime, endTime: instructorConflict.endTime },
+      })
+    }
+
+    if (existing.studentGroupId) {
+      const groupConflict = await prisma.scheduleEntry.findFirst({
+        where: {
+          studentGroupId: existing.studentGroupId,
+          date: { in: futureDates },
+          AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
+          id: { notIn: futureIds },
+        },
+      })
+      if (groupConflict) {
+        return res.status(409).json({
+          error: 'GROUP_CONFLICT',
+          details: { conflictId: groupConflict.id, date: groupConflict.date.toISOString(), startTime: groupConflict.startTime, endTime: groupConflict.endTime },
+        })
+      }
+    }
+
     const dayMap: Record<number, 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY'> = {
       1: 'MONDAY', 2: 'TUESDAY', 3: 'WEDNESDAY', 4: 'THURSDAY',
       5: 'FRIDAY', 6: 'SATURDAY', 0: 'SUNDAY',
     }
-    const newDayOfWeek = dayMap[targetDate.getDay()]
+    const newDayOfWeek = dayMap[targetDate.getUTCDay()]
 
     await prisma.scheduleTemplate.update({
       where: { id: existing.templateId },
@@ -273,38 +343,19 @@ export const move = async (req: Request, res: Response) => {
       },
     })
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    const futureEntries = await prisma.scheduleEntry.findMany({
-      where: {
-        templateId: existing.templateId,
-        date: { gte: today },
-        status: { not: 'CANCELLED' },
-      },
-      orderBy: { date: 'asc' },
-    })
-
-    const targetDayNum = targetDate.getDay()
     const updated = await Promise.all(
-      futureEntries.map(async (entry) => {
-        const entryDate = new Date(entry.date)
-        const currentDay = entryDate.getDay()
-        const diff = targetDayNum - currentDay
-        const newEntryDate = new Date(entryDate)
-        newEntryDate.setDate(newEntryDate.getDate() + diff)
-
-        return prisma.scheduleEntry.update({
+      futureEntries.map((entry, i) =>
+        prisma.scheduleEntry.update({
           where: { id: entry.id },
           data: {
-            date: newEntryDate,
+            date: futureDates[i],
             startTime: newStartTime,
             endTime: newEndTime,
             ...(newRoomId ? { roomId: newRoomId } : {}),
             ...(newInstructorId ? { instructorId: newInstructorId } : {}),
           },
         })
-      })
+      )
     )
 
     res.json({
