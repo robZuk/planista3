@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Users, Pencil, Trash2 } from 'lucide-react'
+import { ChevronRight, Users, Pencil, Trash2, Plus } from 'lucide-react'
 import { groupsApi } from '@/api/groups'
 import { curriculumApi } from '@/api/curriculum'
 import { useAuthStore } from '@/store/authStore'
@@ -39,6 +39,177 @@ const TYPE_COLORS: Record<GroupType, string> = {
   LAB:      'bg-orange-500/15 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
   PROJECT:  'bg-purple-500/15 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
   SEMINAR:  'bg-pink-500/15   text-pink-700   dark:bg-pink-500/20   dark:text-pink-300',
+}
+
+function AddGroupDialog({
+  onClose,
+  onSaved,
+  academicYear,
+  availableSemesters,
+}: {
+  onClose: () => void
+  onSaved: () => void
+  academicYear: string
+  availableSemesters: number[]
+}) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState<GroupType | ''>('')
+  const [size, setSize] = useState('30')
+  const [semester, setSemester] = useState('')
+  const [facultyId, setFacultyId] = useState('')
+  const [fieldOfStudyId, setFieldOfStudyId] = useState('')
+  const [specializationId, setSpecializationId] = useState('')
+  const [parentGroupId, setParentGroupId] = useState('')
+
+  const { data: facultiesData } = useQuery({
+    queryKey: ['faculties-for-add-group'],
+    queryFn: () => curriculumApi.getFaculties(),
+  })
+  const { data: fieldsData } = useQuery({
+    queryKey: ['fields-for-add-group', facultyId],
+    queryFn: () => curriculumApi.getFieldsOfStudy(facultyId),
+    enabled: !!facultyId,
+  })
+  const { data: specsData } = useQuery({
+    queryKey: ['specs-for-add-group', fieldOfStudyId],
+    queryFn: () => curriculumApi.getSpecializations(fieldOfStudyId),
+    enabled: !!fieldOfStudyId,
+  })
+  const { data: parentGroupsData } = useQuery({
+    queryKey: ['groups-for-parent', fieldOfStudyId, semester, academicYear],
+    queryFn: () => groupsApi.getAll({ fieldOfStudyId, semester: parseInt(semester), academicYear }),
+    enabled: !!fieldOfStudyId && !!semester,
+    select: (res) => res.data.data,
+  })
+
+  const faculties = facultiesData?.data.data ?? []
+  const fields = fieldsData?.data.data ?? []
+  const specs = specsData?.data.data ?? []
+  const parentCandidates = (parentGroupsData ?? []).filter((g) => !g.parentGroupId)
+  const studyYear = semester ? Math.ceil(parseInt(semester) / 2) : 1
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      groupsApi.create({
+        name: name.trim(),
+        type: type as GroupType,
+        size: parseInt(size),
+        fieldOfStudyId,
+        specializationId: specializationId && specializationId !== 'none' ? specializationId : undefined,
+        studyYear,
+        semester: parseInt(semester),
+        academicYear,
+        parentGroupId: parentGroupId || undefined,
+      }),
+    onSuccess: () => { onSaved(); onClose() },
+  })
+
+  const canSave = !!name.trim() && !!type && !!size && !!fieldOfStudyId && !!semester && !createMutation.isPending
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Dodaj grupę ręcznie</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 pt-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Wydział</Label>
+              <Select value={facultyId} onValueChange={(v) => { setFacultyId(v); setFieldOfStudyId(''); setSpecializationId('') }}>
+                <SelectTrigger><SelectValue placeholder="Wybierz" /></SelectTrigger>
+                <SelectContent>
+                  {faculties.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Kierunek</Label>
+              <Select value={fieldOfStudyId} onValueChange={(v) => { setFieldOfStudyId(v); setSpecializationId('') }} disabled={!facultyId}>
+                <SelectTrigger><SelectValue placeholder={!facultyId ? 'Najpierw wydział' : 'Wybierz'} /></SelectTrigger>
+                <SelectContent>
+                  {fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Specjalność</Label>
+              <Select value={specializationId} onValueChange={setSpecializationId} disabled={!fieldOfStudyId}>
+                <SelectTrigger><SelectValue placeholder={!fieldOfStudyId ? 'Najpierw kierunek' : 'Wybierz'} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Brak</SelectItem>
+                  {specs.map((s) => <SelectItem key={s.id} value={s.id}>{s.shortName}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Semestr</Label>
+              <Select value={semester} onValueChange={setSemester}>
+                <SelectTrigger><SelectValue placeholder="Wybierz" /></SelectTrigger>
+                <SelectContent>
+                  {availableSemesters.map((s) => (
+                    <SelectItem key={s} value={String(s)}>Sem. {s} (rok {Math.ceil(s / 2)})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Typ grupy</Label>
+              <Select value={type} onValueChange={(v) => setType(v as GroupType)}>
+                <SelectTrigger><SelectValue placeholder="Wybierz" /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(TYPE_LABELS).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Liczba studentów</Label>
+              <Input type="number" min={1} value={size} onChange={(e) => setSize(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Nazwa grupy</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="np. EDST-1-W" />
+          </div>
+
+          {!!fieldOfStudyId && !!semester && parentCandidates.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Grupa nadrzędna (opcjonalnie)</Label>
+              <Select value={parentGroupId} onValueChange={(v) => setParentGroupId(v === 'none' ? '' : v)}>
+                <SelectTrigger><SelectValue placeholder="Brak" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Brak</SelectItem>
+                  {parentCandidates.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {createMutation.isError && (
+            <p className="text-sm text-destructive">Błąd — sprawdź czy nazwa jest unikalna</p>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <Button className="flex-1" disabled={!canSave} onClick={() => createMutation.mutate()}>
+              {createMutation.isPending ? 'Zapisywanie...' : 'Zapisz'}
+            </Button>
+            <Button variant="outline" onClick={onClose}>Anuluj</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 function EditGroupDialog({
@@ -154,22 +325,21 @@ function GenerateForm({
     proposal: GroupProposalItem[]
     fieldOfStudyId: string
     specializationId: string
-    studyYear: number
-    semester: number
     academicYear: string
+    studyMode: string
   }) => void
 }) {
   const { academicYear, semesterType } = useAcademicYearStore()
   const semesterTypeNumbers = SEMESTER_TYPE_NUMBERS[semesterType]
 
   const [facultyId, setFacultyId] = useState('')
+  const [studyMode, setStudyMode] = useState('')
   const [fieldOfStudyId, setFieldOfStudyId] = useState('')
   const [specializationId, setSpecializationId] = useState('')
-  const [studyMode, setStudyMode] = useState('')
   const [semester, setSemester] = useState('')
   const [totalStudents, setTotalStudents] = useState('60')
 
-  // Kaskada: wydział → kierunek → specjalność
+  // Kaskada: wydział → kierunek → specjalność (tryb niezależny)
   const { data: facultiesData } = useQuery({
     queryKey: ['faculties-for-groups'],
     queryFn: () => curriculumApi.getFaculties(),
@@ -187,7 +357,7 @@ function GenerateForm({
 
   // Wersje planu — filtrowane po specjalności lub kierunku gdy brak specjalności
   const specChosen = specializationId !== ''  // '' = nie wybrany, 'none' lub ID = wybrany
-  const { data: versionsData, isLoading: isVersionsLoading } = useQuery({
+  const { data: versionsData } = useQuery({
     queryKey: ['versions-for-groups', specializationId, fieldOfStudyId, academicYear],
     queryFn: () => curriculumApi.getVersions(),
     enabled: specChosen,
@@ -199,7 +369,7 @@ function GenerateForm({
       }),
   })
 
-  // Wpisy siatki dla wybranej wersji → które semestry mają dane
+  // Wpisy siatki dla wybranej wersji (tryb + specjalność) → które semestry mają dane
   const selectedVersion = versionsData?.find((v) => v.studyMode === studyMode)
   const { data: entriesData, isLoading: isEntriesLoading } = useQuery({
     queryKey: ['entries-for-groups', selectedVersion?.id],
@@ -211,7 +381,6 @@ function GenerateForm({
   const faculties = facultiesData?.data.data ?? []
   const fields = fieldsData?.data.data ?? []
   const specs = specsData?.data.data ?? []
-  const availableStudyModes = [...new Set(versionsData?.map((v) => v.studyMode) ?? [])]
   // Semestry: mają wpisy w siatce ORAZ pasują do zimowy/letni
   const availableSemesters = (entriesData ?? []).filter((s) => semesterTypeNumbers.includes(s))
   // Rok studiów wynikający z semestru
@@ -222,24 +391,23 @@ function GenerateForm({
       groupsApi.generate({
         fieldOfStudyId,
         specializationId: specializationId === 'none' ? undefined : specializationId || undefined,
-        studyYear,
-        semester: parseInt(semester),
+        semester: semester ? parseInt(semester) : undefined,
         academicYear,
         totalStudents: parseInt(totalStudents),
+        studyMode,
       }),
     onSuccess: (res) => {
       onProposal({
         proposal: res.data.data.proposal,
         fieldOfStudyId,
         specializationId: specializationId === 'none' ? '' : specializationId,
-        studyYear,
-        semester: parseInt(semester),
         academicYear,
+        studyMode,
       })
     },
   })
 
-  const canGenerate = !!fieldOfStudyId && specChosen && !!studyMode && !!semester && !generateMutation.isPending
+  const canGenerate = !!fieldOfStudyId && specChosen && !!studyMode && !generateMutation.isPending
 
   return (
     <Card>
@@ -250,19 +418,36 @@ function GenerateForm({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
           <div className="space-y-1.5 min-w-0">
             <Label>Wydział</Label>
-            <Select value={facultyId || undefined} onValueChange={(v) => { setFacultyId(v); setFieldOfStudyId(''); setSpecializationId(''); setStudyMode(''); setSemester('') }}>
+            <Select value={facultyId || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setFacultyId(val); setFieldOfStudyId(''); setSpecializationId(''); setSemester('') }}>
               <SelectTrigger className="w-full"><SelectValue placeholder="Wybierz wydział" /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="__all__">Wszystkie wydziały</SelectItem>
                 {faculties.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-1.5 min-w-0">
-            <Label>Kierunek</Label>
-            <Select value={fieldOfStudyId || undefined} onValueChange={(v) => { setFieldOfStudyId(v); setSpecializationId(''); setStudyMode(''); setSemester('') }} disabled={!facultyId}>
-              <SelectTrigger className="w-full"><SelectValue placeholder="Wybierz kierunek" /></SelectTrigger>
+            <Label>Tryb studiów</Label>
+            <Select value={studyMode || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setStudyMode(val); setSemester('') }}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Wybierz tryb" />
+              </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__all__">Wszystkie tryby</SelectItem>
+                {Object.entries(STUDY_MODE_LABELS).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5 min-w-0">
+            <Label>Kierunek</Label>
+            <Select value={fieldOfStudyId || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setFieldOfStudyId(val); setSpecializationId(''); setSemester('') }} disabled={!facultyId}>
+              <SelectTrigger className="w-full"><SelectValue placeholder={!facultyId ? 'Najpierw wybierz wydział' : 'Wybierz kierunek'} /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Wszystkie kierunki</SelectItem>
                 {fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName} — {f.name}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -270,9 +455,10 @@ function GenerateForm({
 
           <div className="space-y-1.5 min-w-0">
             <Label>Specjalność</Label>
-            <Select value={specializationId || undefined} onValueChange={(v) => { setSpecializationId(v); setStudyMode(''); setSemester('') }} disabled={!fieldOfStudyId}>
+            <Select value={specializationId || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setSpecializationId(val); setSemester('') }} disabled={!fieldOfStudyId}>
               <SelectTrigger className="w-full"><SelectValue placeholder={!fieldOfStudyId ? 'Najpierw wybierz kierunek' : 'Wybierz specjalność'} /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="__all__">Wszystkie specjalności</SelectItem>
                 <SelectItem value="none">Brak (ogólnie dla kierunku)</SelectItem>
                 {specs.map((s) => <SelectItem key={s.id} value={s.id}>{s.shortName} — {s.name}</SelectItem>)}
               </SelectContent>
@@ -280,32 +466,12 @@ function GenerateForm({
           </div>
 
           <div className="space-y-1.5 min-w-0">
-            <Label>Tryb studiów</Label>
-            <Select value={studyMode || undefined} onValueChange={(v) => { setStudyMode(v); setSemester('') }} disabled={!specChosen || (specChosen && isVersionsLoading) || (!isVersionsLoading && availableStudyModes.length === 0)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={
-                  !specChosen ? 'Najpierw wybierz specjalność'
-                  : isVersionsLoading ? 'Ładowanie...'
-                  : availableStudyModes.length === 0 ? 'Brak planów studiów'
-                  : 'Wybierz tryb'
-                } />
-              </SelectTrigger>
-              <SelectContent>
-                {availableStudyModes.map((m) => (
-                  <SelectItem key={m} value={m}>{STUDY_MODE_LABELS[m] ?? m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5 min-w-0">
             <Label>Semestr</Label>
-            <Select value={semester || undefined} onValueChange={setSemester} disabled={!studyMode || isEntriesLoading || (!isEntriesLoading && availableSemesters.length === 0)}>
+            <Select value={semester} onValueChange={setSemester} disabled={!specChosen || !studyMode || isEntriesLoading || (!isEntriesLoading && availableSemesters.length === 0)}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={
-                  !studyMode ? 'Najpierw wybierz tryb'
-                  : isEntriesLoading ? 'Ładowanie...'
-                  : availableSemesters.length === 0 ? 'Brak semestrów w siatce'
+                  isEntriesLoading ? 'Ładowanie...'
+                  : availableSemesters.length === 0 && specChosen && studyMode ? 'Brak semestrów w siatce'
                   : 'Wybierz semestr'
                 } />
               </SelectTrigger>
@@ -343,7 +509,7 @@ function ProposalPreview({
   onCancel,
 }: {
   proposal: GroupProposalItem[]
-  meta: { fieldOfStudyId: string; specializationId: string; studyYear: number; semester: number; academicYear: string }
+  meta: { fieldOfStudyId: string; specializationId: string; academicYear: string; studyMode: string }
   onConfirm: () => void
   onCancel: () => void
 }) {
@@ -352,9 +518,8 @@ function ProposalPreview({
       groupsApi.confirm({
         fieldOfStudyId: meta.fieldOfStudyId,
         specializationId: meta.specializationId || undefined,
-        studyYear: meta.studyYear,
-        semester: meta.semester,
         academicYear: meta.academicYear,
+        studyMode: meta.studyMode,
         proposal,
       }),
     onSuccess: onConfirm,
@@ -373,6 +538,7 @@ function ProposalPreview({
               <span className={`text-xs px-1.5 py-0.5 rounded-full ${TYPE_COLORS[g.type]}`}>
                 {TYPE_LABELS[g.type]}
               </span>
+              <span className="text-xs text-muted-foreground">sem. {g.semester}</span>
               <span className="text-xs text-muted-foreground ml-auto">{g.size} os.</span>
             </div>
           ))}
@@ -404,14 +570,40 @@ export function GroupsPage() {
   const { academicYear, semesterType } = useAcademicYearStore()
   const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
 
-  const [filterSemester, setFilterSemester] = useState<string>('')
+  const [filterFacultyId, setFilterFacultyId] = useState('')
+  const [filterStudyMode, setFilterStudyMode] = useState('')
+  const [filterFieldId, setFilterFieldId] = useState('')
+  const [filterSpecId, setFilterSpecId] = useState('')
+  const [filterSemester, setFilterSemester] = useState('')
   const [proposal, setProposal] = useState<GroupProposalItem[] | null>(null)
   const [proposalMeta, setProposalMeta] = useState<{
-    fieldOfStudyId: string; specializationId: string; studyYear: number; semester: number; academicYear: string
+    fieldOfStudyId: string; specializationId: string; academicYear: string; studyMode: string
   } | null>(null)
   const [editingGroup, setEditingGroup] = useState<StudentGroup | null>(null)
+  const [addingGroup, setAddingGroup] = useState(false)
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['groups'] })
+
+  // Filtry listy — kaskada
+  const { data: filterFacultiesData } = useQuery({
+    queryKey: ['faculties-for-filter'],
+    queryFn: () => curriculumApi.getFaculties(),
+  })
+  const { data: filterFieldsData } = useQuery({
+    queryKey: ['fields-for-filter', filterFacultyId],
+    queryFn: () => curriculumApi.getFieldsOfStudy(filterFacultyId),
+    enabled: !!filterFacultyId,
+  })
+  const { data: filterSpecsData } = useQuery({
+    queryKey: ['specs-for-filter', filterFieldId],
+    queryFn: () => curriculumApi.getSpecializations(filterFieldId),
+    enabled: !!filterFieldId,
+  })
+  const filterFaculties = filterFacultiesData?.data.data ?? []
+  const filterFields = filterFieldsData?.data.data ?? []
+  const filterSpecs = filterSpecsData?.data.data ?? []
+  const isFilterEntriesLoading = false
+  const filterSemesters = availableSemesters
 
   const updateMutation = useMutation({
     mutationFn: ({ id, name, size }: { id: string; name: string; size: number }) =>
@@ -430,11 +622,21 @@ export function GroupsPage() {
   })
 
   const { data: groupsData, isLoading } = useQuery({
-    queryKey: ['groups', filterSemester, academicYear],
-    queryFn: () => groupsApi.getAll({ semester: filterSemester ? parseInt(filterSemester) : undefined, academicYear }),
+    queryKey: ['groups', filterFieldId, filterSpecId, filterSemester, academicYear],
+    queryFn: () => groupsApi.getAll({
+      fieldOfStudyId: filterFieldId || undefined,
+      specializationId: filterSpecId && filterSpecId !== 'none' ? filterSpecId : undefined,
+      semester: filterSemester ? parseInt(filterSemester) : undefined,
+      academicYear,
+    }),
   })
 
-  const groups = groupsData?.data.data ?? []
+  const allGroups = groupsData?.data.data ?? []
+  const groups = filterStudyMode
+    ? allGroups.filter((g) =>
+        filterStudyMode === 'PART_TIME' ? g.name.includes('-SN-') : !g.name.includes('-SN-')
+      )
+    : allGroups
   const topLevelGroups = groups.filter((g) => !g.parentGroupId)
 
   return (
@@ -469,18 +671,62 @@ export function GroupsPage() {
 
       {/* Sekcja 2: Lista grup */}
       <div>
-        <div className="flex items-center gap-3 mb-4">
-          <Select value={filterSemester || undefined} onValueChange={setFilterSemester}>
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Wszystkie semestry" />
-            </SelectTrigger>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-3">
+          <Select value={filterFacultyId || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setFilterFacultyId(val); setFilterFieldId(''); setFilterSpecId(''); setFilterSemester('') }}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Wydział" /></SelectTrigger>
             <SelectContent>
-              {availableSemesters.map((s) => (
-                <SelectItem key={s} value={String(s)}>Semestr {s}</SelectItem>
+              <SelectItem value="__all__">Wszystkie wydziały</SelectItem>
+              {filterFaculties.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          <Select value={filterStudyMode || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setFilterStudyMode(val); setFilterSemester('') }}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Tryb" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Wszystkie tryby</SelectItem>
+              {Object.entries(STUDY_MODE_LABELS).map(([k, v]) => (
+                <SelectItem key={k} value={k}>{v}</SelectItem>
               ))}
             </SelectContent>
           </Select>
+
+          <Select value={filterFieldId || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setFilterFieldId(val); setFilterSpecId(''); setFilterSemester('') }} disabled={!filterFacultyId}>
+            <SelectTrigger className="w-full"><SelectValue placeholder={!filterFacultyId ? 'Najpierw wydział' : 'Kierunek'} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Wszystkie kierunki</SelectItem>
+              {filterFields.map((f) => <SelectItem key={f.id} value={f.id}>{f.shortName}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          <Select value={filterSpecId || '__all__'} onValueChange={(v) => { const val = v === '__all__' ? '' : v; setFilterSpecId(val); setFilterSemester('') }} disabled={!filterFieldId}>
+            <SelectTrigger className="w-full"><SelectValue placeholder={!filterFieldId ? 'Najpierw kierunek' : 'Specjalność'} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Wszystkie spec.</SelectItem>
+              {filterSpecs.map((s) => <SelectItem key={s.id} value={s.id}>{s.shortName}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          <Select value={filterSemester || '__all__'} onValueChange={(v) => setFilterSemester(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Semestr" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Wszystkie semestry</SelectItem>
+              {filterSemesters.map((s) => (
+                <SelectItem key={s} value={String(s)}>Sem. {s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center gap-3 mb-4">
           <Badge variant="secondary">{groups.length} grup</Badge>
+          {canEdit && (
+            <Button size="sm" variant="outline" onClick={() => setAddingGroup(true)}>
+              <Plus size={14} className="mr-1" />
+              Dodaj grupę
+            </Button>
+          )}
           {canEdit && groups.length > 0 && (
             <Button
               variant="destructive"
@@ -531,6 +777,15 @@ export function GroupsPage() {
             group={editingGroup}
             onClose={() => setEditingGroup(null)}
             onSave={(name, size) => updateMutation.mutate({ id: editingGroup.id, name, size })}
+          />
+        )}
+
+        {addingGroup && (
+          <AddGroupDialog
+            onClose={() => setAddingGroup(false)}
+            onSaved={invalidate}
+            academicYear={academicYear}
+            availableSemesters={[1, 2, 3, 4, 5, 6, 7, 8]}
           />
         )}
       </div>

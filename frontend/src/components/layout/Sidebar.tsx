@@ -1,11 +1,13 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, BookOpen, CalendarDays, Users, GraduationCap, Building2, School, LogOut, Sun, Moon } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
-import { useAcademicYearStore, ACADEMIC_YEARS } from '@/store/academicYearStore'
+import { useAcademicYearStore } from '@/store/academicYearStore'
 import { useTheme } from '@/hooks/useTheme'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { Role } from '@/types'
 import { cn } from '@/lib/utils'
+import { useQuery } from '@tanstack/react-query'
+import { curriculumApi } from '@/api/curriculum'
 
 interface NavItem {
   label: string
@@ -69,6 +71,11 @@ export function Sidebar() {
     if (year) setAcademicYear(year)
     if (type === 'WINTER' || type === 'SUMMER') setSemesterType(type)
   }
+  const { data: yearsData } = useQuery({
+    queryKey: ['academic-years'],
+    queryFn: () => curriculumApi.getAcademicYears(),
+  })
+  const academicYears = yearsData?.data.data ?? []
 
   const visibleItems = NAV_ITEMS.filter(
     (item) => user && item.roles.includes(user.role)
@@ -97,7 +104,7 @@ export function Sidebar() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {ACADEMIC_YEARS.flatMap((y) => [
+            {academicYears.flatMap((y) => [
               <SelectItem key={`${y}|WINTER`} value={`${y}|WINTER`}>{y} — zimowy</SelectItem>,
               <SelectItem key={`${y}|SUMMER`} value={`${y}|SUMMER`}>{y} — letni</SelectItem>,
             ])}

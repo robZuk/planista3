@@ -59,7 +59,7 @@ export const scheduleApi = {
     studyMode?: StudyMode
   }) => client.post<{ data: object[]; meta: { total: number } }>('/schedule/generate-template', params),
 
-  generateSemester: (data: { templateIds: string[]; calendarId: string }) =>
+  generateSemester: (data: { templateIds: string[]; academicYear: string; semesterType: string; studyMode: string }) =>
     client.post<{ data: { created: number; skipped: number; conflicts: number }; details: object; message: string }>(
       '/schedule/generate-semester',
       data

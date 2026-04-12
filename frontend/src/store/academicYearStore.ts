@@ -14,7 +14,6 @@ export const SEMESTER_TYPE_NUMBERS: Record<SemesterType, number[]> = {
   SUMMER: [2, 4, 6],
 }
 
-export const ACADEMIC_YEARS = ['2025/2026', '2024/2025', '2023/2024', '2022/2023']
 
 interface AcademicYearStore {
   academicYear: string

@@ -18,10 +18,11 @@ const primaryRoomTypeMap: Record<GroupType, RoomType[]> = {
 // GET /api/groups
 export const getAll = async (req: Request, res: Response) => {
   try {
-    const { fieldOfStudyId, semester, academicYear } = req.query
+    const { fieldOfStudyId, specializationId, semester, academicYear } = req.query
     const data = await prisma.studentGroup.findMany({
       where: {
         ...(fieldOfStudyId ? { fieldOfStudyId: String(fieldOfStudyId) } : {}),
+        ...(specializationId ? { specializationId: String(specializationId) } : {}),
         ...(semester ? { semester: Number(semester) } : {}),
         ...(academicYear ? { academicYear: String(academicYear) } : {}),
       },
@@ -57,19 +58,105 @@ export const getOne = async (req: Request, res: Response) => {
   }
 }
 
+type ProposalEntry = {
+  name: string
+  type: GroupType
+  size: number
+  parentName: string | null
+  semester: number
+  studyYear: number
+}
+
+async function generateForSemester(
+  sem: number,
+  groupPrefix: string,
+  totalStudents: number,
+  facultyId: string,
+  classTypes: Set<GroupType>,
+): Promise<ProposalEntry[]> {
+  const studyYear = Math.ceil(sem / 2)
+  const proposal: ProposalEntry[] = []
+  const groupCounts: Partial<Record<GroupType, number>> = {}
+
+  const orderedTypes: GroupType[] = [
+    GroupType.LECTURE,
+    GroupType.EXERCISE,
+    GroupType.LAB,
+    GroupType.PROJECT,
+    GroupType.SEMINAR,
+  ]
+
+  for (const groupType of orderedTypes) {
+    if (!classTypes.has(groupType)) continue
+
+    const buildingFilter = {
+      OR: [
+        { building: { facultyId } },
+        { building: { facultyId: null } },
+      ],
+    }
+
+    let largestRoom = await prisma.room.findFirst({
+      where: { type: { in: primaryRoomTypeMap[groupType] }, ...buildingFilter },
+      orderBy: { capacity: 'desc' },
+    })
+
+    // Fallback dla wykładu: brak sali wykładowej → użyj największej ćwiczeniowej,
+    // ale tylko jeśli wszyscy studenci się w niej zmieszczą
+    if (groupType === GroupType.LECTURE && !largestRoom) {
+      const largestExerciseRoom = await prisma.room.findFirst({
+        where: { type: RoomType.EXERCISE, ...buildingFilter },
+        orderBy: { capacity: 'desc' },
+      })
+      if (largestExerciseRoom && largestExerciseRoom.capacity >= totalStudents) {
+        largestRoom = largestExerciseRoom
+      }
+    }
+
+    const roomCapacity = largestRoom?.capacity ?? totalStudents
+    const groupCount = Math.ceil(totalStudents / roomCapacity)
+    const groupSize = Math.ceil(totalStudents / groupCount)
+    groupCounts[groupType] = groupCount
+
+    if (groupType === GroupType.LECTURE) {
+      proposal.push({ name: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0), type: GroupType.LECTURE, size: totalStudents, parentName: null, semester: sem, studyYear })
+    } else if (groupType === GroupType.EXERCISE) {
+      for (let i = 0; i < groupCount; i++) {
+        proposal.push({ name: generateGroupName(groupPrefix, studyYear, GroupType.EXERCISE, i), type: GroupType.EXERCISE, size: groupSize, parentName: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0), semester: sem, studyYear })
+      }
+    } else if (groupType === GroupType.LAB) {
+      const exerciseCount = groupCounts[GroupType.EXERCISE] ?? 1
+      const labPerExercise = Math.ceil(groupCount / exerciseCount)
+      const exerciseGroupSize = Math.ceil(totalStudents / exerciseCount)
+      for (let exerciseIdx = 0; exerciseIdx < exerciseCount; exerciseIdx++) {
+        for (let labIdx = 0; labIdx < labPerExercise; labIdx++) {
+          proposal.push({ name: generateGroupName(groupPrefix, studyYear, GroupType.LAB, labIdx, exerciseIdx), type: GroupType.LAB, size: Math.ceil(exerciseGroupSize / labPerExercise), parentName: generateGroupName(groupPrefix, studyYear, GroupType.EXERCISE, exerciseIdx), semester: sem, studyYear })
+        }
+      }
+      groupCounts[GroupType.LAB] = exerciseCount * labPerExercise
+    } else {
+      for (let i = 0; i < groupCount; i++) {
+        proposal.push({ name: generateGroupName(groupPrefix, studyYear, groupType, i), type: groupType, size: groupSize, parentName: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0), semester: sem, studyYear })
+      }
+    }
+  }
+
+  return proposal
+}
+
 // POST /api/groups/generate — generuj propozycję (nie zapisuje)
 export const generate = async (req: Request, res: Response) => {
   try {
-    const { fieldOfStudyId, specializationId, studyYear, semester, academicYear, totalStudents } = req.body as {
+    const { fieldOfStudyId, specializationId, semester, academicYear, totalStudents, studyMode } = req.body as {
       fieldOfStudyId: string
       specializationId?: string
-      studyYear: number
-      semester: number
+      semester?: number
       academicYear: string
       totalStudents: number
+      studyMode?: string
     }
 
-    if (!fieldOfStudyId || !studyYear || !semester || !academicYear || !totalStudents) {
+    if (!fieldOfStudyId || !academicYear || !totalStudents) {
       return res.status(400).json({ error: 'Brakujące wymagane pola' })
     }
     if (totalStudents <= 0) {
@@ -90,136 +177,50 @@ export const generate = async (req: Request, res: Response) => {
       })
       if (specialization) groupPrefix = specialization.shortName
     }
+    if (studyMode === 'PART_TIME') groupPrefix = `${groupPrefix}-SN`
 
-    // Pobierz aktywne wersje planu i sprawdź jakie typy zajęć mają godziny w tym semestrze
+    // Pobierz aktywne wersje planu
     const curriculumVersions = await prisma.curriculumVersion.findMany({
       where: {
         isActive: true,
         ...(specializationId
           ? { specializationId }
           : { specialization: { fieldOfStudyId } }),
+        ...(studyMode ? { studyMode: studyMode as 'FULL_TIME' | 'PART_TIME' } : {}),
       },
       include: {
         entries: {
-          where: { semester },
-          select: {
-            hoursLecture: true,
-            hoursExercise: true,
-            hoursLab: true,
-            hoursProject: true,
-            hoursSeminar: true,
-          },
+          where: semester ? { semester } : undefined,
+          select: { semester: true, hoursLecture: true, hoursExercise: true, hoursLab: true, hoursProject: true, hoursSeminar: true },
         },
       },
     })
 
-    const classTypesInSemester = new Set<GroupType>()
+    // Zbierz klasy typów per semestr
+    const semesterClassTypes = new Map<number, Set<GroupType>>()
     for (const version of curriculumVersions) {
       for (const entry of version.entries) {
-        if (entry.hoursLecture > 0)  classTypesInSemester.add(GroupType.LECTURE)
-        if (entry.hoursExercise > 0) classTypesInSemester.add(GroupType.EXERCISE)
-        if (entry.hoursLab > 0)      classTypesInSemester.add(GroupType.LAB)
-        if (entry.hoursProject > 0)  classTypesInSemester.add(GroupType.PROJECT)
-        if (entry.hoursSeminar > 0)  classTypesInSemester.add(GroupType.SEMINAR)
+        if (!semesterClassTypes.has(entry.semester)) semesterClassTypes.set(entry.semester, new Set())
+        const types = semesterClassTypes.get(entry.semester)!
+        if (entry.hoursLecture > 0)  types.add(GroupType.LECTURE)
+        if (entry.hoursExercise > 0) types.add(GroupType.EXERCISE)
+        if (entry.hoursLab > 0)      types.add(GroupType.LAB)
+        if (entry.hoursProject > 0)  types.add(GroupType.PROJECT)
+        if (entry.hoursSeminar > 0)  types.add(GroupType.SEMINAR)
       }
     }
 
-    if (classTypesInSemester.size === 0) {
-      return res.status(400).json({ error: 'Brak wpisów w siatce godzin dla tego semestru' })
-    }
-
-    type ProposalEntry = {
-      name: string
-      type: GroupType
-      size: number
-      parentName: string | null
+    if (semesterClassTypes.size === 0) {
+      return res.status(400).json({ error: 'Brak wpisów w siatce godzin' })
     }
 
     const proposal: ProposalEntry[] = []
-    const groupCounts: Partial<Record<GroupType, number>> = {}
-
-    const orderedTypes: GroupType[] = [
-      GroupType.LECTURE,
-      GroupType.EXERCISE,
-      GroupType.LAB,
-      GroupType.PROJECT,
-      GroupType.SEMINAR,
-    ]
-
-    for (const groupType of orderedTypes) {
-      if (!classTypesInSemester.has(groupType)) continue
-
-      // Znajdź największą salę pierwotnego typu (do obliczenia liczby grup)
-      // Używamy primaryRoomTypeMap — bez sal zastępczych (np. LECTURE nie liczy dla EXERCISE)
-      const largestRoom = await prisma.room.findFirst({
-        where: {
-          type: { in: primaryRoomTypeMap[groupType] },
-          OR: [
-            { building: { facultyId: fieldOfStudy.facultyId } },
-            { building: { facultyId: null } },
-          ],
-        },
-        orderBy: { capacity: 'desc' },
-      })
-
-      const roomCapacity = largestRoom?.capacity ?? totalStudents
-      const groupCount = Math.ceil(totalStudents / roomCapacity)
-      const groupSize = Math.ceil(totalStudents / groupCount)
-
-      groupCounts[groupType] = groupCount
-
-      if (groupType === GroupType.LECTURE) {
-        proposal.push({
-          name: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0),
-          type: GroupType.LECTURE,
-          size: totalStudents,
-          parentName: null,
-        })
-      } else if (groupType === GroupType.EXERCISE) {
-        for (let i = 0; i < groupCount; i++) {
-          proposal.push({
-            name: generateGroupName(groupPrefix, studyYear, GroupType.EXERCISE, i),
-            type: GroupType.EXERCISE,
-            size: groupSize,
-            parentName: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0),
-          })
-        }
-      } else if (groupType === GroupType.LAB) {
-        const exerciseCount = groupCounts[GroupType.EXERCISE] ?? 1
-        const labPerExercise = Math.ceil(groupCount / exerciseCount)
-        const exerciseGroupSize = Math.ceil(totalStudents / exerciseCount)
-
-        for (let exerciseIdx = 0; exerciseIdx < exerciseCount; exerciseIdx++) {
-          for (let labIdx = 0; labIdx < labPerExercise; labIdx++) {
-            const labSize = Math.ceil(exerciseGroupSize / labPerExercise)
-            proposal.push({
-              name: generateGroupName(groupPrefix, studyYear, GroupType.LAB, labIdx, exerciseIdx),
-              type: GroupType.LAB,
-              size: labSize,
-              parentName: generateGroupName(groupPrefix, studyYear, GroupType.EXERCISE, exerciseIdx),
-            })
-          }
-        }
-        groupCounts[GroupType.LAB] = exerciseCount * labPerExercise
-      } else {
-        // PROJECT i SEMINAR — dzieci grupy wykładowej
-        for (let i = 0; i < groupCount; i++) {
-          proposal.push({
-            name: generateGroupName(groupPrefix, studyYear, groupType, i),
-            type: groupType,
-            size: groupSize,
-            parentName: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0),
-          })
-        }
-      }
+    for (const [sem, classTypes] of [...semesterClassTypes.entries()].sort(([a], [b]) => a - b)) {
+      const semProposal = await generateForSemester(sem, groupPrefix, totalStudents, fieldOfStudy.facultyId, classTypes)
+      proposal.push(...semProposal)
     }
 
-    res.json({
-      data: {
-        proposal,
-        meta: { totalStudents, semester, academicYear, groupCounts },
-      },
-    })
+    res.json({ data: { proposal, meta: { totalStudents, academicYear } } })
   } catch (error) {
     res.status(500).json({ error: 'Błąd serwera', details: error })
   }
@@ -228,27 +229,29 @@ export const generate = async (req: Request, res: Response) => {
 // POST /api/groups/confirm — zatwierdź i zapisz propozycję
 export const confirm = async (req: Request, res: Response) => {
   try {
-    const { fieldOfStudyId, specializationId, studyYear, semester, academicYear, proposal } = req.body as {
+    const { fieldOfStudyId, specializationId, academicYear, studyMode, proposal } = req.body as {
       fieldOfStudyId: string
       specializationId?: string
-      studyYear: number
-      semester: number
       academicYear: string
+      studyMode?: string
       proposal: Array<{
         name: string
         type: GroupType
         size: number
         parentName: string | null
+        semester: number
+        studyYear: number
         preferredRoomId?: string
       }>
     }
 
-    if (!fieldOfStudyId || !studyYear || !semester || !academicYear || !proposal?.length) {
+    if (!fieldOfStudyId || !academicYear || !proposal?.length) {
       return res.status(400).json({ error: 'Brakujące wymagane pola' })
     }
 
-    // Sortuj: grupy bez rodzica pierwsze
+    // Sortuj per semestr, grupy bez rodzica pierwsze
     const sorted = [...proposal].sort((a, b) => {
+      if (a.semester !== b.semester) return a.semester - b.semester
       if (!a.parentName && b.parentName) return -1
       if (a.parentName && !b.parentName) return 1
       return 0
@@ -268,8 +271,8 @@ export const confirm = async (req: Request, res: Response) => {
             size: group.size,
             fieldOfStudyId,
             specializationId: specializationId ?? null,
-            studyYear,
-            semester,
+            studyYear: group.studyYear,
+            semester: group.semester,
             academicYear,
             parentGroupId: parentId ?? null,
             preferredRoomId: null,

@@ -210,6 +210,14 @@ async function main() {
     { number: 'A101', type: 'LECTURE',  capacity: 120 },
     { number: 'A102', type: 'LECTURE',  capacity: 80  },
     { number: 'A103', type: 'LECTURE',  capacity: 60  },
+    { number: 'A104', type: 'LECTURE',  capacity: 60  },
+    { number: 'A105', type: 'LECTURE',  capacity: 60  },
+    { number: 'A106', type: 'LECTURE',  capacity: 60  },
+    { number: 'A107', type: 'LECTURE',  capacity: 60  },
+    { number: 'A108', type: 'LECTURE',  capacity: 60  },
+    { number: 'A109', type: 'LECTURE',  capacity: 60  },
+    { number: 'A110', type: 'LECTURE',  capacity: 60  },
+    { number: 'A111', type: 'LECTURE',  capacity: 60  },
     { number: 'A201', type: 'EXERCISE', capacity: 30  },
     { number: 'A202', type: 'EXERCISE', capacity: 30  },
     { number: 'A203', type: 'EXERCISE', capacity: 30  },
@@ -275,6 +283,10 @@ async function main() {
     { firstName: 'Monika',    lastName: 'Dąbrowska',   title: 'dr inż.',       email: 'm.dabrowska@umg.edu.pl'    },
     { firstName: 'Krzysztof', lastName: 'Kozłowski',   title: 'prof. dr hab.', email: 'k.kozlowski@umg.edu.pl'    },
     { firstName: 'Ewa',       lastName: 'Jankowska',   title: 'dr',            email: 'e.jankowska@umg.edu.pl'    },
+    { firstName: 'Paweł',    lastName: 'Stępień',     title: 'dr inż.',       email: 'p.stepien@umg.edu.pl'      },
+    { firstName: 'Magdalena', lastName: 'Kowalczyk',  title: 'dr',            email: 'm.kowalczyk@umg.edu.pl'    },
+    { firstName: 'Andrzej',  lastName: 'Marciniak',   title: 'prof. dr hab.', email: 'a.marciniak@umg.edu.pl'    },
+    { firstName: 'Barbara',  lastName: 'Piotrowska',  title: 'dr hab.',       email: 'b.piotrowska@umg.edu.pl'   },
   ];
 
   for (const p of prowadzacyWM) {
@@ -326,6 +338,50 @@ async function main() {
     },
   });
   console.log('✅ Admin: admin@umg.edu.pl / Admin1234!');
+
+  // ─── Semester Calendars ───────────────────────────────────
+  const calendars = [
+    {
+      academicYear: '2024/2025',
+      semesterType: 'WINTER' as const,
+      studyMode: StudyMode.FULL_TIME,
+      startDate: new Date('2024-10-01'),
+      endDate: new Date('2025-01-31'),
+      teachingWeeks: 15,
+    },
+    {
+      academicYear: '2024/2025',
+      semesterType: 'WINTER' as const,
+      studyMode: StudyMode.PART_TIME,
+      startDate: new Date('2024-10-01'),
+      endDate: new Date('2025-02-02'),
+      teachingWeeks: 10,
+    },
+    {
+      academicYear: '2024/2025',
+      semesterType: 'SUMMER' as const,
+      studyMode: StudyMode.FULL_TIME,
+      startDate: new Date('2025-02-17'),
+      endDate: new Date('2025-06-15'),
+      teachingWeeks: 15,
+    },
+    {
+      academicYear: '2024/2025',
+      semesterType: 'SUMMER' as const,
+      studyMode: StudyMode.PART_TIME,
+      startDate: new Date('2025-02-17'),
+      endDate: new Date('2025-06-22'),
+      teachingWeeks: 10,
+    },
+  ]
+  for (const cal of calendars) {
+    await prisma.semesterCalendar.upsert({
+      where: { academicYear_semesterType_studyMode: { academicYear: cal.academicYear, semesterType: cal.semesterType, studyMode: cal.studyMode } },
+      update: {},
+      create: cal,
+    })
+  }
+  console.log('SemesterCalendars created: 4 (2024/2025 WINTER+SUMMER × FULL_TIME+PART_TIME)');
 
   console.log('Seeding complete!');
 }

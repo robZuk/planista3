@@ -1,0 +1,60 @@
+@startuml Zarządzanie grupami i curriculum
+!theme plain
+title Planista — Zarządzanie grupami i siatką godzin
+
+actor Admin
+participant "Frontend" as FE
+participant "Backend" as BE
+database "PostgreSQL" as DB
+
+== Grupy ==
+
+Admin -> FE : Przechodzi do "Grupy"\n(rok ak. + semestr z Sidebar)
+FE -> BE : GET /api/groups\n?academicYear=&semesterType=
+BE --> FE : StudentGroup[]\n(z relacjami: fieldOfStudy, specialization)
+FE --> Admin : Tabela grup\nz hierarchią (wykład → ćwiczenia → laboratoria)
+
+Admin -> FE : Klik "Dodaj grupę"
+FE --> Admin : Formularz:\n- Wydział → Kierunek → Specjalizacja\n- Rok studiów\n- Typ (W/C/L/P/S)\n- Tryb studiów\n- Nazwa (auto-generowana z prefiksu)
+
+Admin -> FE : Zatwierdza
+FE -> BE : POST /api/groups\n{ name, semester, academicYear,\n  studyMode, fieldOfStudyId,\n  specializationId?, parentGroupId? }
+BE -> DB : Sprawdź unikalność\n[name, semester, academicYear]
+alt Duplikat
+  BE --> FE : 409 Conflict
+  FE --> Admin : "Grupa o tej nazwie już istnieje"
+else OK
+  BE -> DB : create StudentGroup
+  BE --> FE : 201 { data }
+  FE --> Admin : Nowa grupa w tabeli
+end
+
+== Curriculum (siatka godzin) ==
+
+Admin -> FE : Przechodzi do "Curriculum"
+FE -> BE : GET /api/curriculum/versions\n?fieldOfStudyId=&year=&semesterType=
+BE --> FE : CurriculumVersion[]
+FE --> Admin : Lista wersji siatek
+
+Admin -> FE : Wybiera wersję
+FE -> BE : GET /api/curriculum/versions/:id/entries
+BE --> FE : CurriculumEntry[]\n(przedmiot, godziny, typ zajęć, semestr)
+FE --> Admin : Tabela z pozycjami\ncurriculum
+
+Admin -> FE : Klik "Dodaj pozycję"
+FE --> Admin : Formularz:\n- Przedmiot\n- Typ zajęć (W/C/L/P/S)\n- Liczba godz. tygodniowo\n- Liczba godz. akademickich
+
+Admin -> FE : Zatwierdza
+FE -> BE : POST /api/curriculum/versions/:id/entries\n{ subjectId, classType, hoursPerWeek,\n  academicHours, semester }
+BE -> DB : create CurriculumEntry
+BE --> FE : 201 { data }
+FE --> Admin : Nowa pozycja w tabeli
+
+note over Admin, DB
+  CurriculumEntry jest punktem wyjścia
+  przy tworzeniu ScheduleTemplate —
+  łączy przedmiot z konkretną grupą
+  i przypisanym prowadzącym.
+end note
+
+@enduml

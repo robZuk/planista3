@@ -90,7 +90,7 @@ function BuildingDialog({
             <Label>Wydział</Label>
             <Select value={form.facultyId || undefined} onValueChange={set('facultyId')}>
               <SelectTrigger>
-                <SelectValue placeholder="— ogólnouczelniany —" />
+                <SelectValue placeholder="Wybierz wydział" />
               </SelectTrigger>
               <SelectContent>
                 {faculties.map((f) => (

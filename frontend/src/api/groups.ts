@@ -2,7 +2,7 @@ import client from './client'
 import type { StudentGroup, GroupProposal, GroupProposalItem, GroupType } from '../types'
 
 export const groupsApi = {
-  getAll: (params: { fieldOfStudyId?: string; semester?: number; academicYear?: string } = {}) =>
+  getAll: (params: { fieldOfStudyId?: string; specializationId?: string; semester?: number; academicYear?: string } = {}) =>
     client.get<{ data: StudentGroup[] }>('/groups', { params }),
 
   getOne: (id: string) =>
@@ -11,18 +11,17 @@ export const groupsApi = {
   generate: (body: {
     fieldOfStudyId: string
     specializationId?: string
-    studyYear: number
-    semester: number
+    semester?: number
     academicYear: string
     totalStudents: number
+    studyMode?: string
   }) => client.post<{ data: GroupProposal }>('/groups/generate', body),
 
   confirm: (body: {
     fieldOfStudyId: string
     specializationId?: string
-    studyYear: number
-    semester: number
     academicYear: string
+    studyMode?: string
     proposal: GroupProposalItem[]
   }) => client.post<{ data: StudentGroup[] }>('/groups/confirm', body),
 
@@ -35,6 +34,18 @@ export const groupsApi = {
 
   removeAll: (academicYear?: string) =>
     client.delete('/groups', { params: academicYear ? { academicYear } : undefined }),
+
+  create: (body: {
+    name: string
+    type: GroupType
+    size: number
+    fieldOfStudyId: string
+    specializationId?: string
+    studyYear: number
+    semester: number
+    academicYear: string
+    parentGroupId?: string
+  }) => client.post<{ data: StudentGroup }>('/groups', body),
 
   getGroupTypes: (): GroupType[] => ['LECTURE', 'EXERCISE', 'LAB', 'PROJECT', 'SEMINAR'],
 }

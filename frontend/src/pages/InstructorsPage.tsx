@@ -82,7 +82,7 @@ function InstructorDialog({
             <Label>Wydział</Label>
             <Select value={form.facultyId || undefined} onValueChange={set('facultyId')}>
               <SelectTrigger>
-                <SelectValue placeholder="— ogólnouczelniany —" />
+                <SelectValue placeholder="Wybierz wydział" />
               </SelectTrigger>
               <SelectContent>
                 {faculties.map((f) => (
@@ -185,7 +185,7 @@ export function InstructorsPage() {
         {canEdit && (
           <Button onClick={() => { setEditing(null); setDialogOpen(true) }}>
             <Plus size={16} className="mr-2" />
-            Dodaj
+            Dodaj prowadzącego
           </Button>
         )}
       </div>
@@ -194,11 +194,12 @@ export function InstructorsPage() {
       <div className="flex flex-wrap gap-3 mb-6 p-4 bg-card rounded-lg border border-border">
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-muted-foreground">Wydział</label>
-          <Select value={filterFacultyId || undefined} onValueChange={setFilterFacultyId}>
+          <Select value={filterFacultyId || '__all__'} onValueChange={(v) => setFilterFacultyId(v === '__all__' ? '' : v)}>
             <SelectTrigger className="w-56">
               <SelectValue placeholder="Wszystkie wydziały" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="__all__">Wszystkie wydziały</SelectItem>
               {faculties.map((f) => (
                 <SelectItem key={f.id} value={f.id}>
                   {f.shortName} — {f.name}
@@ -216,13 +217,6 @@ export function InstructorsPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        {filterFacultyId && (
-          <div className="flex items-end">
-            <Button variant="ghost" size="sm" onClick={() => setFilterFacultyId('')}>
-              Wyczyść filtry
-            </Button>
-          </div>
-        )}
       </div>
 
       {isLoading && <p className="text-muted-foreground text-center py-16">Ładowanie…</p>}

@@ -1,0 +1,69 @@
+@startuml Tworzenie szablonu planu
+!theme plain
+title Planista — Tworzenie szablonu tygodniowego (Admin)
+
+actor Admin
+participant "Frontend\n(SchedulePage)" as FE
+participant "Backend\n(Express API)" as BE
+database "PostgreSQL\n(Prisma)" as DB
+
+== Otwarcie strony ==
+
+Admin -> FE : Przechodzi do\n"Plan zajęć"
+FE -> BE : GET /api/schedule/templates\n?academicYear=&semesterType=
+BE -> DB : findMany ScheduleTemplate\n(+ curriculumEntry, room, instructor, group)
+DB --> BE : lista szablonów
+BE --> FE : { data: ScheduleTemplate[] }
+FE --> Admin : Wyświetla siatkę tygodnia\nz istniejącymi szablonami
+
+== Dodanie nowego szablonu ==
+
+Admin -> FE : Klik wolnego slotu\n(dzień + godzina)
+FE --> Admin : Dialog "Nowe zajęcia"\n(wypełniony dzień/godzina)
+
+Admin -> FE : Wybiera:\n- Pozycję curriculum\n- Grupę\n- Salę\n- Prowadzącego\n- Typ tygodnia (każdy/parzysty/nieparzysty)
+
+Admin -> FE : Zatwierdza
+
+FE -> BE : POST /api/schedule/templates\n{ dayOfWeek, startTime, endTime,\n  curriculumEntryId, roomId,\n  instructorId, studentGroupId,\n  weekType, academicYear, semesterType }
+
+BE -> DB : Sprawdź konflikty\n(sala / prowadzący / grupa\nw tym samym oknie czasowym)
+
+alt Konflikt wykryty
+  DB --> BE : kolizja
+  BE --> FE : 409 Conflict\n{ error, details: { conflictType, with } }
+  FE --> Admin : Komunikat błędu\n(co koliduje i z czym)
+else Brak konfliktu
+  BE -> DB : create ScheduleTemplate
+  DB --> BE : nowy rekord
+  BE --> FE : 201 { data: ScheduleTemplate }
+  FE --> Admin : Szablon pojawia się\nna siatce tygodnia
+end
+
+== Edycja / usunięcie szablonu ==
+
+Admin -> FE : Klik istniejącego szablonu
+FE --> Admin : Dialog edycji\n(pola jak przy tworzeniu)
+
+alt Zapisz zmiany
+  Admin -> FE : Zatwierdza
+  FE -> BE : PUT /api/schedule/templates/:id
+  BE -> DB : Walidacja konfliktów\n(pomiń własny rekord)
+  alt OK
+    BE -> DB : update ScheduleTemplate
+    BE --> FE : 200 { data }
+    FE --> Admin : Zaktualizowany kafelek
+  else Konflikt
+    BE --> FE : 409 Conflict
+    FE --> Admin : Komunikat błędu
+  end
+else Usuń
+  Admin -> FE : Klik "Usuń"
+  FE --> Admin : Potwierdzenie
+  FE -> BE : DELETE /api/schedule/templates/:id
+  BE -> DB : delete ScheduleTemplate\n(+ powiązane ScheduleEntry?)
+  BE --> FE : 204
+  FE --> Admin : Szablon znika z siatki
+end
+
+@enduml

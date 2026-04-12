@@ -1,0 +1,70 @@
+@startuml Edycja i przeniesienie zajęć
+!theme plain
+title Planista — Edycja / przeniesienie konkretnych zajęć
+
+actor Admin
+participant "Frontend\n(SchedulePage)" as FE
+participant "Backend" as BE
+database "PostgreSQL" as DB
+
+== Widok tygodniowy ==
+
+Admin -> FE : Wybiera tydzień\n(nawigacja strzałkami)
+FE -> BE : GET /api/schedule/entries\n?from=&to=&groupId=
+BE --> FE : ScheduleEntry[] z tego tygodnia
+FE --> Admin : Kafelki na siatce godzin\n(kolor wg statusu)
+
+== Edycja pojedynczych zajęć ==
+
+Admin -> FE : Klik zajęć na siatce
+FE --> Admin : Dialog edycji:\n- Prowadzący\n- Sala\n- Przenieś (nowa data + godzina)\n- Odwołaj
+
+alt Zmiana prowadzącego lub sali
+  Admin -> FE : Wybiera nową wartość
+  FE -> BE : PUT /api/schedule/entries/:id\n{ instructorId? | roomId? }
+  BE -> DB : Walidacja konfliktu\ndla nowej wartości w tej dacie/godzinie
+  alt Konflikt
+    BE --> FE : 409 Conflict\n{ conflictType, with, at }
+    FE --> Admin : Komunikat błędu
+  else OK
+    BE -> DB : update ScheduleEntry
+    BE --> FE : 200 { data }
+    FE --> Admin : Kafelek zaktualizowany
+  end
+
+else Przeniesienie zajęć
+  Admin -> FE : Podaje nową datę + godzinę
+  FE --> Admin : Dialog wyboru zakresu:\n"Tylko te zajęcia (data X)\nczy cały semestr?"
+
+  alt Tylko ten termin
+    FE -> BE : PUT /api/schedule/entries/:id\n{ date, startTime, endTime }
+    BE -> DB : Walidacja konfliktów\n(sala, prowadzący, grupa)
+    alt OK
+      BE -> DB : update ScheduleEntry
+      BE --> FE : 200
+      FE --> Admin : Wpis przeniesiony
+    else Konflikt
+      BE --> FE : 409
+      FE --> Admin : Komunikat błędu
+    end
+
+  else Cały semestr
+    FE -> BE : PUT /api/schedule/templates/:templateId\n{ dayOfWeek, startTime, endTime }
+    BE -> DB : update ScheduleTemplate
+    BE -> DB : Usuń przyszłe ScheduleEntry\npowiązane z szablonem\n(date >= today)
+    BE -> BE : Uruchom generator\ndla nowego wzorca\n(od dziś do końca semestru)
+    BE -> DB : create nowe ScheduleEntry[]
+    BE --> FE : 200 { updated: N, warnings: [] }
+    FE --> Admin : Potwierdzenie z\nliczbą przesuniętych zajęć
+  end
+
+else Odwołanie zajęć
+  Admin -> FE : Klik "Odwołaj"
+  FE --> Admin : Potwierdzenie
+  FE -> BE : PUT /api/schedule/entries/:id\n{ status: "CANCELLED" }
+  BE -> DB : update status
+  BE --> FE : 200
+  FE --> Admin : Kafelek zmienia kolor\nna szary / przekreślony
+end
+
+@enduml

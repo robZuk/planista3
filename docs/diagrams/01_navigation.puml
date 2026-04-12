@@ -1,0 +1,69 @@
+@startuml Nawigacja ogólna
+!theme plain
+title Planista — Nawigacja ogólna po aplikacji
+
+|Użytkownik|
+|System|
+
+|Użytkownik|
+start
+
+:Otwiera aplikację;
+
+|System|
+:Sprawdza accessToken\n(localStorage);
+
+if (Token ważny?) then (tak)
+  :Pobiera dane użytkownika\nGET /api/auth/me;
+  |Użytkownik|
+  :Widzi Dashboard;
+else (nie)
+  if (refreshToken istnieje?) then (tak)
+    |System|
+    :POST /api/auth/refresh;
+    if (Refresh OK?) then (tak)
+      :Zapisuje nowy accessToken;
+      |Użytkownik|
+      :Widzi Dashboard;
+    else (nie)
+      |Użytkownik|
+      :Strona logowania;
+    endif
+  else (nie)
+    |Użytkownik|
+    :Strona logowania;
+    :Wpisuje email + hasło;
+    |System|
+    :POST /api/auth/login;
+    if (Dane poprawne?) then (tak)
+      :Zapisuje access + refresh token;
+      |Użytkownik|
+      :Widzi Dashboard;
+    else (nie)
+      :Komunikat błędu;
+      :Strona logowania;
+    endif
+  endif
+endif
+
+|Użytkownik|
+:Wybiera rok akademicki\ni semestr (Sidebar);
+
+fork
+  :Curriculum\n(siatka godzin);
+fork again
+  :Grupy;
+fork again
+  :Plan zajęć;
+fork again
+  :Budynki / Sale;
+fork again
+  :Prowadzący;
+fork again
+  :Wydziały;
+end fork
+
+:Wylogowanie\nDELETE /api/auth/logout;
+
+stop
+@enduml

@@ -46,7 +46,10 @@ export interface CurriculumVersion {
   studyMode: StudyMode
   isActive: boolean
   totalSemesters: number
-  specialization?: Specialization
+  specialization?: Specialization & {
+    fieldOfStudy?: FieldOfStudy & { faculty?: Faculty }
+  }
+  _count?: { entries: number }
 }
 
 export interface CurriculumEntry {
@@ -164,6 +167,8 @@ export interface GroupProposalItem {
   type: GroupType
   size: number
   parentName: string | null
+  semester: number
+  studyYear: number
 }
 
 export interface Room {

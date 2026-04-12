@@ -5,6 +5,19 @@ import { isNotFoundError, isUniqueConstraintError } from '../lib/prismaErrors'
 
 // ─── Curriculum Versions ─────────────────────────────────────
 
+export const getAcademicYears = async (_req: Request, res: Response) => {
+  try {
+    const rows = await prisma.curriculumVersion.findMany({
+      select: { academicYear: true },
+      distinct: ['academicYear'],
+      orderBy: { academicYear: 'desc' },
+    })
+    res.json({ data: rows.map(r => r.academicYear) })
+  } catch (error) {
+    res.status(500).json({ error: 'Błąd serwera', details: error })
+  }
+}
+
 export const getVersions = async (_req: Request, res: Response) => {
   try {
     const data = await prisma.curriculumVersion.findMany({
@@ -83,7 +96,23 @@ export const updateVersion = async (req: Request, res: Response) => {
 
 export const deleteVersion = async (req: Request, res: Response) => {
   try {
-    await prisma.curriculumVersion.delete({ where: { id: req.params.id } })
+    const version = await prisma.curriculumVersion.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, entries: { select: { id: true } } },
+    })
+    if (!version) return res.status(404).json({ error: 'Wersja planu nie znaleziona' })
+
+    const entryIds = version.entries.map((e) => e.id)
+
+    await prisma.$transaction([
+      // Usuń konkretne terminy powiązane z wpisami tej wersji
+      prisma.scheduleEntry.deleteMany({ where: { curriculumEntryId: { in: entryIds } } }),
+      // Usuń wzorce tygodniowe powiązane z wpisami tej wersji
+      prisma.scheduleTemplate.deleteMany({ where: { curriculumEntryId: { in: entryIds } } }),
+      // Usuń wersję planu (kaskada usuwa CurriculumEntry)
+      prisma.curriculumVersion.delete({ where: { id: req.params.id } }),
+    ])
+
     res.json({ message: 'Wersja planu usunięta' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wersja planu nie znaleziona' })

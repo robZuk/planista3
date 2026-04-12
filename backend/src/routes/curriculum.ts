@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import {
+  getAcademicYears,
   getVersions,
   getVersion,
   createVersion,
@@ -14,6 +15,9 @@ import {
 import { authenticate, authorize } from '../middleware/authenticate'
 
 const router = Router()
+
+// Lata akademickie — odczyt dla wszystkich zalogowanych
+router.get('/academic-years', authenticate, getAcademicYears)
 
 // Versions — odczyt dla wszystkich zalogowanych
 router.get('/versions', authenticate, getVersions)

@@ -1,0 +1,54 @@
+@startuml Generowanie wpisów semestru
+!theme plain
+title Planista — Generowanie wpisów semestru z szablonu
+
+actor Admin
+participant "Frontend" as FE
+participant "Backend" as BE
+database "PostgreSQL" as DB
+
+Admin -> FE : Klik "Generuj semestr"\npri szablonie lub globalnie
+FE --> Admin : Dialog:\n- Wybór SemesterCalendar\n  (daty semestru, tryb studiów)\n- Opcja: nadpisz istniejące?
+
+Admin -> FE : Zatwierdza
+
+FE -> BE : POST /api/schedule/generate\n{ templateId, calendarId }
+
+BE -> DB : Pobierz ScheduleTemplate\n(dayOfWeek, weekType, startTime...)
+BE -> DB : Pobierz SemesterCalendar\n(startDate, endDate, studyMode)
+BE -> DB : Pobierz PublicHoliday[]
+
+loop Każdy tydzień semestru
+
+  BE -> BE : Wyznacz datę\ndla dayOfWeek w tym tygodniu
+
+  alt Data to PublicHoliday
+    BE -> BE : Pomiń — zapisz ostrzeżenie
+  else Data poza oknem trybu studiów
+    note right of BE
+      FULL_TIME: Pn–Pt 07–20
+      PART_TIME: Pt 15–20, Sb–Nd 07–20
+    end note
+    BE -> BE : Pomiń
+  else weekType nie pasuje (parzysty/nieparzysty)
+    BE -> BE : Pomiń
+  else OK — sprawdź konflikty
+    BE -> DB : Szukaj ScheduleEntry\nw tej samej sali / tym samym\nprowadzącym / grupie\nw tym terminie
+    alt Konflikt
+      BE -> BE : Zapisz ostrzeżenie\n(nie tworzy wpisu)
+    else Brak konfliktu
+      BE -> DB : create ScheduleEntry\n{ date, startTime, endTime,\n  status: SCHEDULED, templateId,\n  roomId, instructorId,\n  curriculumEntryId, studentGroupId }
+    end
+  end
+
+end
+
+BE --> FE : 200 {\n  created: ScheduleEntry[],\n  warnings: Warning[]\n}
+
+alt Są ostrzeżenia
+  FE --> Admin : Lista utworzonych wpisów\n+ lista pominięć z powodem\n(konflikty, święta)
+else Wszystko OK
+  FE --> Admin : "Wygenerowano N zajęć"
+end
+
+@enduml
