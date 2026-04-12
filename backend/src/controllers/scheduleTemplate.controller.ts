@@ -84,7 +84,7 @@ export const create = async (req: Request, res: Response) => {
     const dto: TemplateDto = { curriculumEntryId, classType, academicHours, roomId, instructorId, studentGroupId, dayOfWeek, startTime, endTime, semester, academicYear, weekType: weekType ?? 'EVERY', studyMode: studyMode ?? 'FULL_TIME' }
     const validationError = await validateTemplateEntry(dto)
     if (validationError) {
-      const statusCode = validationError.code === 'HOURS_EXCEEDED' ? 422 : validationError.code === 'WRONG_ROOM_TYPE' || validationError.code === 'TIME_WINDOW_VIOLATION' ? 400 : 409
+      const statusCode = validationError.code === 'WRONG_ROOM_TYPE' || validationError.code === 'TIME_WINDOW_VIOLATION' ? 400 : 409
       return res.status(statusCode).json({ error: validationError.code, details: validationError.details })
     }
 
@@ -131,12 +131,11 @@ export const update = async (req: Request, res: Response) => {
       weekType: weekType ?? existing.weekType,
       studyMode: studyMode ?? existing.studyMode,
       excludeId: req.params.id,
-      skipHoursCheck: academicHours === undefined,
     }
 
     const validationError = await validateTemplateEntry(dto)
     if (validationError) {
-      const statusCode = validationError.code === 'HOURS_EXCEEDED' ? 422 : validationError.code === 'WRONG_ROOM_TYPE' || validationError.code === 'TIME_WINDOW_VIOLATION' ? 400 : 409
+      const statusCode = validationError.code === 'WRONG_ROOM_TYPE' || validationError.code === 'TIME_WINDOW_VIOLATION' ? 400 : 409
       return res.status(statusCode).json({ error: validationError.code, details: validationError.details })
     }
 

@@ -37,13 +37,18 @@ function getDatesForDayOfWeek(
   const targetDay = { MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5, SATURDAY: 6, SUNDAY: 0 }[dayOfWeek]
   const dates: Date[] = []
 
+  // Użyj UTC noon — odporne na zmiany czasu (DST ±1h nie przekracza granicy doby)
   const current = new Date(startDate)
-  while (current.getDay() !== targetDay) {
-    current.setDate(current.getDate() + 1)
+  current.setUTCHours(12, 0, 0, 0)
+  while (current.getUTCDay() !== targetDay) {
+    current.setUTCDate(current.getUTCDate() + 1)
   }
 
+  const endNoon = new Date(endDate)
+  endNoon.setUTCHours(23, 59, 59, 999)
+
   let weekNumber = 1
-  while (current <= endDate) {
+  while (current <= endNoon) {
     if (
       weekType === 'EVERY' ||
       (weekType === 'EVEN' && weekNumber % 2 === 0) ||
@@ -51,7 +56,7 @@ function getDatesForDayOfWeek(
     ) {
       dates.push(new Date(current))
     }
-    current.setDate(current.getDate() + 7)
+    current.setUTCDate(current.getUTCDate() + 7)
     weekNumber++
   }
   return dates
@@ -533,11 +538,16 @@ export const generateSemester = async (req: Request, res: Response) => {
 
     const templates = await prisma.scheduleTemplate.findMany({
       where: { id: { in: templateIds } },
+      include: {
+        curriculumEntry: { include: { subject: { select: { name: true } } } },
+        studentGroup: { select: { name: true } },
+        room: { select: { number: true } },
+      },
     })
 
     const created: object[] = []
     const skipped: { templateId: string; date: string; reason: string }[] = []
-    const conflicts: { templateId: string; date: string; type: string; details: string }[] = []
+    const conflicts: { templateId: string; date: string; type: string; subjectName: string; startTime: string; endTime: string; groupName: string | null; roomNumber: string }[] = []
 
     for (const template of templates) {
       const dates = getDatesForDayOfWeek(
@@ -587,7 +597,7 @@ export const generateSemester = async (req: Request, res: Response) => {
           },
         })
         if (roomConflict) {
-          conflicts.push({ templateId: template.id, date: date.toISOString(), type: 'ROOM_CONFLICT', details: `wpis ${roomConflict.id}` })
+          conflicts.push({ templateId: template.id, date: date.toISOString(), type: 'ROOM_CONFLICT', subjectName: template.curriculumEntry.subject.name, startTime: template.startTime, endTime: template.endTime, groupName: template.studentGroup?.name ?? null, roomNumber: template.room.number })
           continue
         }
 
@@ -599,7 +609,7 @@ export const generateSemester = async (req: Request, res: Response) => {
           },
         })
         if (instructorConflict) {
-          conflicts.push({ templateId: template.id, date: date.toISOString(), type: 'INSTRUCTOR_CONFLICT', details: `wpis ${instructorConflict.id}` })
+          conflicts.push({ templateId: template.id, date: date.toISOString(), type: 'INSTRUCTOR_CONFLICT', subjectName: template.curriculumEntry.subject.name, startTime: template.startTime, endTime: template.endTime, groupName: template.studentGroup?.name ?? null, roomNumber: template.room.number })
           continue
         }
 
@@ -612,7 +622,7 @@ export const generateSemester = async (req: Request, res: Response) => {
             },
           })
           if (groupConflict) {
-            conflicts.push({ templateId: template.id, date: date.toISOString(), type: 'GROUP_CONFLICT', details: `wpis ${groupConflict.id}` })
+            conflicts.push({ templateId: template.id, date: date.toISOString(), type: 'GROUP_CONFLICT', subjectName: template.curriculumEntry.subject.name, startTime: template.startTime, endTime: template.endTime, groupName: template.studentGroup?.name ?? null, roomNumber: template.room.number })
             continue
           }
         }
