@@ -265,18 +265,6 @@ export const generateTemplate = async (req: Request, res: Response) => {
         }
 
         for (const [effectiveSemester, entries] of semesterMap) {
-          // Śledzenie slotów osobno dla każdej grupy (po groupId) — weekType-aware.
-          // Dzięki temu ćwiczenia grupy C-A nie blokują wykładów grupy W.
-          const groupSlotSets = new Map<string, Set<string>>()
-          const getGroupSet = (groupId: string) => {
-            if (!groupSlotSets.has(groupId)) groupSlotSets.set(groupId, new Set())
-            return groupSlotSets.get(groupId)!
-          }
-          const markGroupSlot = (groupId: string, day: number, start: number, end: number, wt: WeekType) =>
-            markInSet(getGroupSet(groupId), `${day}`, start, end, wt)
-          const isGroupSlotFree = (groupId: string, day: number, start: number, end: number, wt: WeekType) =>
-            isFreeInSet(getGroupSet(groupId), `${day}`, start, end, wt)
-
           // Licznik zajęć na dzień — do równomiernego rozkładu
           const dayLoad = new Map<number, number>()
 
@@ -291,6 +279,47 @@ export const generateTemplate = async (req: Request, res: Response) => {
             effectiveStudyMode === 'PART_TIME' ? g.name.includes('-SN-') : !g.name.includes('-SN-')
           )
           if (groups.length === 0) continue
+
+          // Hierarchia grup: rodzic → dzieci, dziecko → rodzic.
+          // Wykład EDST-1-W i ćwiczenia EDST-1-C-A nie mogą być w tym samym czasie
+          // (studenci C-A chodzą też na W), ale EDST-1-C-A i EDST-1-C-B (rodzeństwo) mogą.
+          const grpParent = new Map<string, string>()
+          const grpChildren = new Map<string, string[]>()
+          for (const g of groups) {
+            if (!grpChildren.has(g.id)) grpChildren.set(g.id, [])
+            if (g.parentGroupId) {
+              grpParent.set(g.id, g.parentGroupId)
+              if (!grpChildren.has(g.parentGroupId)) grpChildren.set(g.parentGroupId, [])
+              grpChildren.get(g.parentGroupId)!.push(g.id)
+            }
+          }
+
+          // Zwraca groupId + wszyscy przodkowie + wszyscy potomkowie (bez rodzeństwa).
+          const getGroupFamily = (groupId: string): string[] => {
+            const result: string[] = [groupId]
+            let curr = groupId
+            while (grpParent.has(curr)) { const p = grpParent.get(curr)!; result.push(p); curr = p }
+            const queue = [groupId]
+            while (queue.length > 0) {
+              const id = queue.shift()!
+              for (const childId of (grpChildren.get(id) ?? [])) { result.push(childId); queue.push(childId) }
+            }
+            return result
+          }
+
+          // Śledzenie slotów per grupa — weekType-aware.
+          // markGroupSlot propaguje do całej rodziny (przodkowie + potomkowie),
+          // isGroupSlotFree sprawdza wyłącznie własny zestaw.
+          const groupSlotSets = new Map<string, Set<string>>()
+          const getGroupSet = (groupId: string) => {
+            if (!groupSlotSets.has(groupId)) groupSlotSets.set(groupId, new Set())
+            return groupSlotSets.get(groupId)!
+          }
+          const markGroupSlot = (groupId: string, day: number, start: number, end: number, wt: WeekType) => {
+            for (const id of getGroupFamily(groupId)) markInSet(getGroupSet(id), `${day}`, start, end, wt)
+          }
+          const isGroupSlotFree = (groupId: string, day: number, start: number, end: number, wt: WeekType) =>
+            isFreeInSet(getGroupSet(groupId), `${day}`, start, end, wt)
 
           const lectureGroup = groups.find(g => g.type === 'LECTURE')
           const defaultSize = lectureGroup?.size ?? 30
@@ -511,6 +540,28 @@ function deriveCalendarDates(academicYear: string, semesterType: 'WINTER' | 'SUM
   }
 }
 
+// Pobiera z bazy wszystkie ID z rodziny grupy (przodkowie + potomkowie + ona sama).
+// Używane przy walidacji konfliktów w generateSemester.
+async function getGroupFamilyIds(groupId: string): Promise<string[]> {
+  const result: string[] = [groupId]
+  // Przodkowie
+  let curr = groupId
+  while (true) {
+    const g = await prisma.studentGroup.findUnique({ where: { id: curr }, select: { parentGroupId: true } })
+    if (!g?.parentGroupId) break
+    result.push(g.parentGroupId)
+    curr = g.parentGroupId
+  }
+  // Potomkowie (BFS)
+  const queue = [groupId]
+  while (queue.length > 0) {
+    const id = queue.shift()!
+    const children = await prisma.studentGroup.findMany({ where: { parentGroupId: id }, select: { id: true } })
+    for (const c of children) { result.push(c.id); queue.push(c.id) }
+  }
+  return result
+}
+
 export const generateSemester = async (req: Request, res: Response) => {
   try {
     const { templateIds, academicYear, semesterType, studyMode } = req.body as {
@@ -584,6 +635,16 @@ export const generateSemester = async (req: Request, res: Response) => {
           continue
         }
 
+        // Idempotentność: jeśli wpis z tego szablonu na tę datę już istnieje — pomiń cicho
+        const alreadyExists = await prisma.scheduleEntry.findFirst({
+          where: { templateId: template.id, date },
+        })
+        if (alreadyExists) {
+          accumulatedHours += template.academicHours
+          skipped.push({ templateId: template.id, date: date.toISOString(), reason: 'ALREADY_EXISTS' })
+          continue
+        }
+
         if (accumulatedHours + template.academicHours > hoursLimit) {
           skipped.push({ templateId: template.id, date: date.toISOString(), reason: 'HOURS_EXCEEDED' })
           continue
@@ -614,9 +675,12 @@ export const generateSemester = async (req: Request, res: Response) => {
         }
 
         if (template.studentGroupId) {
+          // Sprawdź całą rodzinę grupy (przodkowie + potomkowie),
+          // żeby wykryć np. kolizję wykładu z ćwiczeniami tego samego rocznika.
+          const familyIds = await getGroupFamilyIds(template.studentGroupId)
           const groupConflict = await prisma.scheduleEntry.findFirst({
             where: {
-              studentGroupId: template.studentGroupId,
+              studentGroupId: { in: familyIds },
               date,
               AND: [{ startTime: { lt: template.endTime } }, { endTime: { gt: template.startTime } }],
             },
@@ -647,10 +711,12 @@ export const generateSemester = async (req: Request, res: Response) => {
       }
     }
 
+    const alreadyExists = skipped.filter(s => s.reason === 'ALREADY_EXISTS').length
+    const actualSkipped = skipped.filter(s => s.reason !== 'ALREADY_EXISTS')
     res.json({
-      data: { created: created.length, skipped: skipped.length, conflicts: conflicts.length },
-      details: { skipped, conflicts },
-      message: `Wygenerowano ${created.length} wpisów, pominięto ${skipped.length}, konflikty: ${conflicts.length}`,
+      data: { created: created.length, skipped: actualSkipped.length, alreadyExists, conflicts: conflicts.length },
+      details: { skipped: actualSkipped, conflicts },
+      message: `Wygenerowano ${created.length} wpisów, pominięto ${actualSkipped.length}, już istnieje: ${alreadyExists}, konflikty: ${conflicts.length}`,
     })
   } catch (error) {
     res.status(500).json({ error: 'Błąd serwera', details: error })
