@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronRight, Users, Pencil, Trash2, Plus } from 'lucide-react'
 import { groupsApi } from '@/api/groups'
@@ -392,6 +392,7 @@ function GenerateForm({
         fieldOfStudyId,
         specializationId: specializationId === 'none' ? undefined : specializationId || undefined,
         semester: semester ? parseInt(semester) : undefined,
+        semesterType,
         academicYear,
         totalStudents: parseInt(totalStudents),
         studyMode,
@@ -575,6 +576,11 @@ export function GroupsPage() {
   const [filterFieldId, setFilterFieldId] = useState('')
   const [filterSpecId, setFilterSpecId] = useState('')
   const [filterSemester, setFilterSemester] = useState('')
+
+  // Reset filtra semestru gdy zmieni się kontekst (rok lub zimowy/letni)
+  useEffect(() => {
+    setFilterSemester('')
+  }, [academicYear, semesterType])
   const [proposal, setProposal] = useState<GroupProposalItem[] | null>(null)
   const [proposalMeta, setProposalMeta] = useState<{
     fieldOfStudyId: string; specializationId: string; academicYear: string; studyMode: string
@@ -622,12 +628,13 @@ export function GroupsPage() {
   })
 
   const { data: groupsData, isLoading } = useQuery({
-    queryKey: ['groups', filterFieldId, filterSpecId, filterSemester, academicYear],
+    queryKey: ['groups', filterFieldId, filterSpecId, filterSemester, academicYear, semesterType],
     queryFn: () => groupsApi.getAll({
       fieldOfStudyId: filterFieldId || undefined,
       specializationId: filterSpecId && filterSpecId !== 'none' ? filterSpecId : undefined,
       semester: filterSemester ? parseInt(filterSemester) : undefined,
       academicYear,
+      semesterType: filterSemester ? undefined : semesterType,
     }),
   })
 
@@ -785,7 +792,7 @@ export function GroupsPage() {
             onClose={() => setAddingGroup(false)}
             onSaved={invalidate}
             academicYear={academicYear}
-            availableSemesters={[1, 2, 3, 4, 5, 6, 7, 8]}
+            availableSemesters={availableSemesters}
           />
         )}
       </div>

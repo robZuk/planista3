@@ -22,10 +22,17 @@ const templateInclude = {
 
 export const getAll = async (req: Request, res: Response) => {
   try {
-    const { semester, academicYear, studyMode, studentGroupId } = req.query
+    const { semester, semesterType, academicYear, studyMode, studentGroupId } = req.query
+    const semesterFilter = semester
+      ? { semester: Number(semester) }
+      : semesterType === 'WINTER'
+        ? { semester: { in: [1, 3, 5, 7] } }
+        : semesterType === 'SUMMER'
+          ? { semester: { in: [2, 4, 6] } }
+          : {}
     const data = await prisma.scheduleTemplate.findMany({
       where: {
-        ...(semester ? { semester: Number(semester) } : {}),
+        ...semesterFilter,
         ...(academicYear ? { academicYear: String(academicYear) } : {}),
         ...(studyMode ? { studyMode: studyMode as StudyMode } : {}),
         ...(studentGroupId ? { studentGroupId: String(studentGroupId) } : {}),

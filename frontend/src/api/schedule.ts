@@ -3,7 +3,7 @@ import type { ScheduleTemplate, ScheduleEntry, SemesterCalendar, PublicHoliday, 
 
 export const scheduleApi = {
   // ─── Wzorce tygodniowe ─────────────────────────────────────
-  getTemplates: (params: { semester?: number; academicYear?: string; studyMode?: StudyMode; studentGroupId?: string } = {}) =>
+  getTemplates: (params: { semester?: number; semesterType?: 'WINTER' | 'SUMMER'; academicYear?: string; studyMode?: StudyMode; studentGroupId?: string } = {}) =>
     client.get<{ data: ScheduleTemplate[] }>('/schedule/templates', { params }),
 
   getTemplate: (id: string) =>
@@ -55,6 +55,7 @@ export const scheduleApi = {
     fieldOfStudyId?: string
     specializationId?: string
     semester?: number
+    semesterType?: 'WINTER' | 'SUMMER'
     academicYear: string
     studyMode?: StudyMode
   }) => client.post<{ data: object[]; meta: { total: number } }>('/schedule/generate-template', params),

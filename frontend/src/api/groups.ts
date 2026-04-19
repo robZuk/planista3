@@ -2,7 +2,7 @@ import client from './client'
 import type { StudentGroup, GroupProposal, GroupProposalItem, GroupType } from '../types'
 
 export const groupsApi = {
-  getAll: (params: { fieldOfStudyId?: string; specializationId?: string; semester?: number; academicYear?: string } = {}) =>
+  getAll: (params: { fieldOfStudyId?: string; specializationId?: string; semester?: number; academicYear?: string; semesterType?: 'WINTER' | 'SUMMER' } = {}) =>
     client.get<{ data: StudentGroup[] }>('/groups', { params }),
 
   getOne: (id: string) =>
@@ -12,6 +12,7 @@ export const groupsApi = {
     fieldOfStudyId: string
     specializationId?: string
     semester?: number
+    semesterType?: 'WINTER' | 'SUMMER'
     academicYear: string
     totalStudents: number
     studyMode?: string

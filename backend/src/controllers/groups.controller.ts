@@ -18,12 +18,19 @@ const primaryRoomTypeMap: Record<GroupType, RoomType[]> = {
 // GET /api/groups
 export const getAll = async (req: Request, res: Response) => {
   try {
-    const { fieldOfStudyId, specializationId, semester, academicYear } = req.query
+    const { fieldOfStudyId, specializationId, semester, academicYear, semesterType } = req.query
+    const semesterFilter = semester
+      ? { semester: Number(semester) }
+      : semesterType === 'WINTER'
+        ? { semester: { in: [1, 3, 5, 7] } }
+        : semesterType === 'SUMMER'
+          ? { semester: { in: [2, 4, 6] } }
+          : {}
     const data = await prisma.studentGroup.findMany({
       where: {
         ...(fieldOfStudyId ? { fieldOfStudyId: String(fieldOfStudyId) } : {}),
         ...(specializationId ? { specializationId: String(specializationId) } : {}),
-        ...(semester ? { semester: Number(semester) } : {}),
+        ...semesterFilter,
         ...(academicYear ? { academicYear: String(academicYear) } : {}),
       },
       include: {
@@ -119,10 +126,10 @@ async function generateForSemester(
     groupCounts[groupType] = groupCount
 
     if (groupType === GroupType.LECTURE) {
-      proposal.push({ name: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0), type: GroupType.LECTURE, size: totalStudents, parentName: null, semester: sem, studyYear })
+      proposal.push({ name: generateGroupName(groupPrefix, sem, GroupType.LECTURE, 0), type: GroupType.LECTURE, size: totalStudents, parentName: null, semester: sem, studyYear })
     } else if (groupType === GroupType.EXERCISE) {
       for (let i = 0; i < groupCount; i++) {
-        proposal.push({ name: generateGroupName(groupPrefix, studyYear, GroupType.EXERCISE, i), type: GroupType.EXERCISE, size: groupSize, parentName: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0), semester: sem, studyYear })
+        proposal.push({ name: generateGroupName(groupPrefix, sem, GroupType.EXERCISE, i), type: GroupType.EXERCISE, size: groupSize, parentName: generateGroupName(groupPrefix, sem, GroupType.LECTURE, 0), semester: sem, studyYear })
       }
     } else if (groupType === GroupType.LAB) {
       const exerciseCount = groupCounts[GroupType.EXERCISE] ?? 1
@@ -130,13 +137,13 @@ async function generateForSemester(
       const exerciseGroupSize = Math.ceil(totalStudents / exerciseCount)
       for (let exerciseIdx = 0; exerciseIdx < exerciseCount; exerciseIdx++) {
         for (let labIdx = 0; labIdx < labPerExercise; labIdx++) {
-          proposal.push({ name: generateGroupName(groupPrefix, studyYear, GroupType.LAB, labIdx, exerciseIdx), type: GroupType.LAB, size: Math.ceil(exerciseGroupSize / labPerExercise), parentName: generateGroupName(groupPrefix, studyYear, GroupType.EXERCISE, exerciseIdx), semester: sem, studyYear })
+          proposal.push({ name: generateGroupName(groupPrefix, sem, GroupType.LAB, labIdx, exerciseIdx), type: GroupType.LAB, size: Math.ceil(exerciseGroupSize / labPerExercise), parentName: generateGroupName(groupPrefix, sem, GroupType.EXERCISE, exerciseIdx), semester: sem, studyYear })
         }
       }
       groupCounts[GroupType.LAB] = exerciseCount * labPerExercise
     } else {
       for (let i = 0; i < groupCount; i++) {
-        proposal.push({ name: generateGroupName(groupPrefix, studyYear, groupType, i), type: groupType, size: groupSize, parentName: generateGroupName(groupPrefix, studyYear, GroupType.LECTURE, 0), semester: sem, studyYear })
+        proposal.push({ name: generateGroupName(groupPrefix, sem, groupType, i), type: groupType, size: groupSize, parentName: generateGroupName(groupPrefix, sem, GroupType.LECTURE, 0), semester: sem, studyYear })
       }
     }
   }
@@ -147,10 +154,11 @@ async function generateForSemester(
 // POST /api/groups/generate — generuj propozycję (nie zapisuje)
 export const generate = async (req: Request, res: Response) => {
   try {
-    const { fieldOfStudyId, specializationId, semester, academicYear, totalStudents, studyMode } = req.body as {
+    const { fieldOfStudyId, specializationId, semester, semesterType, academicYear, totalStudents, studyMode } = req.body as {
       fieldOfStudyId: string
       specializationId?: string
       semester?: number
+      semesterType?: 'WINTER' | 'SUMMER'
       academicYear: string
       totalStudents: number
       studyMode?: string
@@ -190,7 +198,11 @@ export const generate = async (req: Request, res: Response) => {
       },
       include: {
         entries: {
-          where: semester ? { semester } : undefined,
+          where: semester
+            ? { semester }
+            : semesterType
+              ? { semester: { in: semesterType === 'WINTER' ? [1, 3, 5, 7] : [2, 4, 6] } }
+              : undefined,
           select: { semester: true, hoursLecture: true, hoursExercise: true, hoursLab: true, hoursProject: true, hoursSeminar: true },
         },
       },

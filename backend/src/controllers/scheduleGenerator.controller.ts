@@ -106,13 +106,14 @@ function isFreeInSet(set: Set<string>, prefix: string, start: number, end: numbe
 // Automatyczna propozycja wzorca (nie zapisuje do bazy)
 export const generateTemplate = async (req: Request, res: Response) => {
   try {
-    const { facultyId, fieldOfStudyId, specializationId, semester, academicYear, studyMode } = req.body as {
+    const { facultyId, fieldOfStudyId, specializationId, semester, semesterType, academicYear, studyMode } = req.body as {
       facultyId?: string
       fieldOfStudyId?: string
       specializationId?: string
-      semester?: number        // opcjonalny — jeśli brak, generuj dla wszystkich semestrów
+      semester?: number
+      semesterType?: 'WINTER' | 'SUMMER'
       academicYear: string
-      studyMode?: StudyMode    // opcjonalny — jeśli brak, generuj dla wszystkich trybów
+      studyMode?: StudyMode
     }
 
     if (!academicYear) {
@@ -244,7 +245,11 @@ export const generateTemplate = async (req: Request, res: Response) => {
         },
         include: {
           entries: {
-            where: semester ? { semester } : {},
+            where: semester
+              ? { semester }
+              : semesterType
+                ? { semester: { in: semesterType === 'WINTER' ? [1, 3, 5, 7] : [2, 4, 6] } }
+                : {},
             include: {
               subject: { select: { name: true } },
               instructor: { select: { id: true, firstName: true, lastName: true } },

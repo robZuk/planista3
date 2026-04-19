@@ -5,12 +5,12 @@ const LAB_SUFFIXES = ['1', '2', '3', '4', '5', '6', '7', '8']
 
 export const generateGroupName = (
   fieldShortName: string,  // np. "EDST"
-  studyYear: number,       // np. 1
+  semester: number,        // np. 1, 3, 5...
   type: GroupType,
   index: number,           // 0, 1, 2...
   parentIndex?: number,    // dla LAB — indeks grupy ćwiczeniowej
 ): string => {
-  const base = `${fieldShortName}-${studyYear}`
+  const base = `${fieldShortName}-${semester}`
   switch (type) {
     case GroupType.LECTURE:  return `${base}-W`
     case GroupType.EXERCISE: return `${base}-C-${EXERCISE_LABELS[index]}`

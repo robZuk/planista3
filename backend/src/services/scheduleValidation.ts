@@ -31,9 +31,9 @@ function getHoursLimit(
 
 export type ValidationError =
   | { code: 'HOURS_EXCEEDED'; details: { classType: ClassType; limit: number; alreadyPlanned: number; requested: number; remaining: number } }
-  | { code: 'ROOM_CONFLICT';  details: { conflictId: string; dayOfWeek?: string; date?: string; startTime: string; endTime: string } }
-  | { code: 'INSTRUCTOR_CONFLICT'; details: { conflictId: string; dayOfWeek?: string; date?: string; startTime: string; endTime: string } }
-  | { code: 'GROUP_CONFLICT'; details: { conflictId: string; dayOfWeek?: string; date?: string; startTime: string; endTime: string } }
+  | { code: 'ROOM_CONFLICT';  details: { conflictId: string; dayOfWeek?: string; date?: string; startTime: string; endTime: string; roomNumber?: string; buildingName?: string } }
+  | { code: 'INSTRUCTOR_CONFLICT'; details: { conflictId: string; dayOfWeek?: string; date?: string; startTime: string; endTime: string; instructorName?: string } }
+  | { code: 'GROUP_CONFLICT'; details: { conflictId: string; dayOfWeek?: string; date?: string; startTime: string; endTime: string; groupName?: string } }
   | { code: 'WRONG_ROOM_TYPE'; details: { roomType: RoomType; classType: ClassType; allowed: RoomType[] } }
   | { code: 'TIME_WINDOW_VIOLATION'; details: { dayOfWeek: string; startTime: string; studyMode: string; allowed: string } }
 
@@ -73,45 +73,6 @@ function minsFromTime(t: string): number {
   return (h ?? 0) * 60 + (m ?? 0)
 }
 
-/**
- * Zwraca ID grup, które kolidują z daną grupą przy planowaniu zajęć:
- * - przodkowie (grupa → rodzic → dziadek…): student z ćwiczeń chodzi też na wykład
- * - sama grupa
- * - potomkowie (tylko jej własne dzieci/wnuki): student z laboratorium chodzi na ćwiczenia
- *
- * NIE zwraca rodzeństwa (np. EDST-1-C-B nie koliduje z EDST-1-C-A).
- */
-async function getGroupFamily(groupId: string): Promise<string[]> {
-  const family: string[] = [groupId]
-
-  // 1. Idź w górę — zbierz wszystkich przodków
-  let currentId = groupId
-  while (true) {
-    const group = await prisma.studentGroup.findUnique({
-      where: { id: currentId },
-      select: { parentGroupId: true },
-    })
-    if (!group?.parentGroupId) break
-    family.push(group.parentGroupId)
-    currentId = group.parentGroupId
-  }
-
-  // 2. BFS w dół od danej grupy — zbierz jej własnych potomków (nie rodzeństwo)
-  const queue = [groupId]
-  while (queue.length > 0) {
-    const id = queue.shift()!
-    const children = await prisma.studentGroup.findMany({
-      where: { parentGroupId: id },
-      select: { id: true },
-    })
-    for (const child of children) {
-      family.push(child.id)
-      queue.push(child.id)
-    }
-  }
-
-  return family
-}
 
 // Walidacja szablonu (wzorzec tygodniowy)
 export async function validateTemplateEntry(dto: TemplateDto): Promise<ValidationError | null> {
@@ -156,11 +117,19 @@ export async function validateTemplateEntry(dto: TemplateDto): Promise<Validatio
       ...(compatibleWeekTypes.length > 0 ? { weekType: { notIn: compatibleWeekTypes as never[] } } : {}),
       ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
     },
+    include: { room: { include: { building: { select: { name: true } } } } },
   })
   if (roomConflict) {
     return {
       code: 'ROOM_CONFLICT',
-      details: { conflictId: roomConflict.id, dayOfWeek: roomConflict.dayOfWeek, startTime: roomConflict.startTime, endTime: roomConflict.endTime },
+      details: {
+        conflictId: roomConflict.id,
+        dayOfWeek: roomConflict.dayOfWeek,
+        startTime: roomConflict.startTime,
+        endTime: roomConflict.endTime,
+        roomNumber: roomConflict.room.number,
+        buildingName: roomConflict.room.building.name,
+      },
     }
   }
 
@@ -174,33 +143,45 @@ export async function validateTemplateEntry(dto: TemplateDto): Promise<Validatio
       ...(compatibleWeekTypes.length > 0 ? { weekType: { notIn: compatibleWeekTypes as never[] } } : {}),
       ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
     },
+    include: { instructor: { select: { firstName: true, lastName: true, title: true } } },
   })
   if (instructorConflict) {
+    const i = instructorConflict.instructor
     return {
       code: 'INSTRUCTOR_CONFLICT',
-      details: { conflictId: instructorConflict.id, dayOfWeek: instructorConflict.dayOfWeek, startTime: instructorConflict.startTime, endTime: instructorConflict.endTime },
+      details: {
+        conflictId: instructorConflict.id,
+        dayOfWeek: instructorConflict.dayOfWeek,
+        startTime: instructorConflict.startTime,
+        endTime: instructorConflict.endTime,
+        instructorName: `${i.title ? i.title + ' ' : ''}${i.firstName} ${i.lastName}`,
+      },
     }
   }
 
-  // 5. Konflikt grupy w szablonach (uwzględnia EVEN/ODD i hierarchię grup)
-  // Sprawdzamy całą rodzinę grup: korzeń (wykład) + wszystkich potomków,
-  // bo studenci z podgrup uczestniczą też w zajęciach grupy nadrzędnej.
+  // 5. Konflikt grupy w szablonach
   if (dto.studentGroupId) {
-    const familyIds = await getGroupFamily(dto.studentGroupId)
     const groupConflict = await prisma.scheduleTemplate.findFirst({
       where: {
-        studentGroupId: { in: familyIds },
+        studentGroupId: dto.studentGroupId,
         dayOfWeek: dto.dayOfWeek as never,
         academicYear: dto.academicYear,
         AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
         ...(compatibleWeekTypes.length > 0 ? { weekType: { notIn: compatibleWeekTypes as never[] } } : {}),
         ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
       },
+      include: { studentGroup: { select: { name: true } } },
     })
     if (groupConflict) {
       return {
         code: 'GROUP_CONFLICT',
-        details: { conflictId: groupConflict.id, dayOfWeek: groupConflict.dayOfWeek, startTime: groupConflict.startTime, endTime: groupConflict.endTime },
+        details: {
+          conflictId: groupConflict.id,
+          dayOfWeek: groupConflict.dayOfWeek,
+          startTime: groupConflict.startTime,
+          endTime: groupConflict.endTime,
+          groupName: groupConflict.studentGroup?.name ?? undefined,
+        },
       }
     }
   }
@@ -241,11 +222,19 @@ export async function validateEntryConflicts(dto: EntryConflictDto): Promise<Val
       AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
       ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
     },
+    include: { room: { include: { building: { select: { name: true } } } } },
   })
   if (roomConflict) {
     return {
       code: 'ROOM_CONFLICT',
-      details: { conflictId: roomConflict.id, date: roomConflict.date.toISOString(), startTime: roomConflict.startTime, endTime: roomConflict.endTime },
+      details: {
+        conflictId: roomConflict.id,
+        date: roomConflict.date.toISOString(),
+        startTime: roomConflict.startTime,
+        endTime: roomConflict.endTime,
+        roomNumber: roomConflict.room.number,
+        buildingName: roomConflict.room.building.name,
+      },
     }
   }
 
@@ -256,31 +245,43 @@ export async function validateEntryConflicts(dto: EntryConflictDto): Promise<Val
       AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
       ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
     },
+    include: { instructor: { select: { firstName: true, lastName: true, title: true } } },
   })
   if (instructorConflict) {
+    const i = instructorConflict.instructor
     return {
       code: 'INSTRUCTOR_CONFLICT',
-      details: { conflictId: instructorConflict.id, date: instructorConflict.date.toISOString(), startTime: instructorConflict.startTime, endTime: instructorConflict.endTime },
+      details: {
+        conflictId: instructorConflict.id,
+        date: instructorConflict.date.toISOString(),
+        startTime: instructorConflict.startTime,
+        endTime: instructorConflict.endTime,
+        instructorName: `${i.title ? i.title + ' ' : ''}${i.firstName} ${i.lastName}`,
+      },
     }
   }
 
-  // Konflikt grupy w konkretnych wpisach — uwzględnia hierarchię grup:
-  // sprawdzamy całą rodzinę (korzeń + potomkowie), żeby wykryć np. kolizję
-  // wykładu EDST-1-W z ćwiczeniami EDST-1-C-A tego samego rocznika.
+  // Konflikt grupy w konkretnych wpisach
   if (dto.studentGroupId) {
-    const familyIds = await getGroupFamily(dto.studentGroupId)
     const groupConflict = await prisma.scheduleEntry.findFirst({
       where: {
-        studentGroupId: { in: familyIds },
+        studentGroupId: dto.studentGroupId,
         date: dto.date,
         AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
         ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
       },
+      include: { studentGroup: { select: { name: true } } },
     })
     if (groupConflict) {
       return {
         code: 'GROUP_CONFLICT',
-        details: { conflictId: groupConflict.id, date: groupConflict.date.toISOString(), startTime: groupConflict.startTime, endTime: groupConflict.endTime },
+        details: {
+          conflictId: groupConflict.id,
+          date: groupConflict.date.toISOString(),
+          startTime: groupConflict.startTime,
+          endTime: groupConflict.endTime,
+          groupName: groupConflict.studentGroup?.name ?? undefined,
+        },
       }
     }
   }
