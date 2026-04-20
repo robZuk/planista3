@@ -3059,21 +3059,42 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
     : (allCalendars
         .filter(c => c.academicYear === academicYear && c.semesterType === semesterType)
         .sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null)
-  const calMin = selectedCalendar ? selectedCalendar.startDate.slice(0, 10) : ''
-  const calMax = selectedCalendar ? selectedCalendar.endDate.slice(0, 10) : ''
+
+  // Wyznacz daty semestru — z bazy lub domyślne (identyczna logika co backend deriveCalendarDates)
+  const derivedCalendarDates = useMemo((): { startDate: string; endDate: string } | null => {
+    if (selectedCalendar) return null
+    if (!academicYear || !semesterType) return null
+    const firstYear = parseInt(academicYear.split('/')[0] ?? '2024')
+    const secondYear = firstYear + 1
+    if (semesterType === 'WINTER') {
+      return { startDate: `${firstYear}-10-01`, endDate: `${secondYear}-02-02` }
+    } else {
+      return { startDate: `${secondYear}-02-17`, endDate: `${secondYear}-06-22` }
+    }
+  }, [selectedCalendar, academicYear, semesterType])
+
+  const calMin = selectedCalendar
+    ? selectedCalendar.startDate.slice(0, 10)
+    : (derivedCalendarDates?.startDate ?? '')
+  const calMax = selectedCalendar
+    ? selectedCalendar.endDate.slice(0, 10)
+    : (derivedCalendarDates?.endDate ?? '')
   // Granice nawigacji jako poniedziałki (żeby porównywać weekStart do weekStart)
   const calMinMonday = calMin ? isoDate(getMonday(new Date(calMin + 'T12:00:00'))) : ''
   const calMaxMonday = calMax ? isoDate(getMonday(new Date(calMax + 'T12:00:00'))) : ''
 
-  // Skocz do początku kalendarza tylko jeśli bieżący tydzień jest poza jego zakresem
+  // Skocz do początku semestru gdy zmienia się kontekst lub ładuje się kalendarz
+  const calStartKey = selectedCalendar?.id ?? `${academicYear}-${semesterType}`
   useEffect(() => {
-    if (selectedCalendar) {
-      const current = isoDate(weekStart)
-      if (!calMinMonday || !calMaxMonday || current < calMinMonday || current > calMaxMonday) {
-        setWeekStart(getMonday(new Date(selectedCalendar.startDate.slice(0, 10) + 'T12:00:00')))
-      }
+    const startDate = selectedCalendar
+      ? selectedCalendar.startDate.slice(0, 10)
+      : derivedCalendarDates?.startDate
+    if (!startDate) return
+    const current = isoDate(weekStart)
+    if (!calMinMonday || !calMaxMonday || current < calMinMonday || current > calMaxMonday) {
+      setWeekStart(getMonday(new Date(startDate + 'T12:00:00')))
     }
-  }, [selectedCalendar?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [calStartKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const qc = useQueryClient()
   const deleteManyMutation = useMutation({

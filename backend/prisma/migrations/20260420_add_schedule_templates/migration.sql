@@ -1,13 +1,3 @@
-/*
-  Warnings:
-
-  - You are about to drop the column `academicYear` on the `ScheduleEntry` table. All the data in the column will be lost.
-  - You are about to drop the column `dayOfWeek` on the `ScheduleEntry` table. All the data in the column will be lost.
-  - You are about to drop the column `semester` on the `ScheduleEntry` table. All the data in the column will be lost.
-  - You are about to drop the column `weekType` on the `ScheduleEntry` table. All the data in the column will be lost.
-  - Added the required column `date` to the `ScheduleEntry` table without a default value. This is not possible if the table is not empty.
-
-*/
 -- CreateEnum
 CREATE TYPE "EntryStatus" AS ENUM ('SCHEDULED', 'CANCELLED', 'MAKEUP');
 
@@ -19,9 +9,12 @@ ALTER TABLE "ScheduleEntry" DROP COLUMN "academicYear",
 DROP COLUMN "dayOfWeek",
 DROP COLUMN "semester",
 DROP COLUMN "weekType",
-ADD COLUMN     "date" TIMESTAMP(3) NOT NULL,
+ADD COLUMN     "date" TIMESTAMP(3) NOT NULL DEFAULT now(),
 ADD COLUMN     "status" "EntryStatus" NOT NULL DEFAULT 'SCHEDULED',
 ADD COLUMN     "templateId" TEXT;
+
+-- Remove the default after the column is added (to enforce NOT NULL going forward)
+ALTER TABLE "ScheduleEntry" ALTER COLUMN "date" DROP DEFAULT;
 
 -- CreateTable
 CREATE TABLE "ScheduleTemplate" (
@@ -40,7 +33,7 @@ CREATE TABLE "ScheduleTemplate" (
     "semester" INTEGER NOT NULL,
     "academicYear" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ScheduleTemplate_pkey" PRIMARY KEY ("id")
 );
