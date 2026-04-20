@@ -1,5 +1,6 @@
 import { ClassType, RoomType } from '@prisma/client'
 import prisma from '../lib/prisma'
+import { getGroupFamilyIds } from '../lib/groupFamily'
 
 // Mapowanie: typ zajęć → dopuszczalne typy sal
 const roomTypeMap: Record<ClassType, RoomType[]> = {
@@ -72,6 +73,7 @@ function minsFromTime(t: string): number {
   const [h, m] = t.split(':').map(Number)
   return (h ?? 0) * 60 + (m ?? 0)
 }
+
 
 
 // Walidacja szablonu (wzorzec tygodniowy)
@@ -159,11 +161,12 @@ export async function validateTemplateEntry(dto: TemplateDto): Promise<Validatio
     }
   }
 
-  // 5. Konflikt grupy w szablonach
+  // 5. Konflikt grupy w szablonach (uwzględnia całą rodzinę: przodkowie + potomkowie)
   if (dto.studentGroupId) {
+    const familyIds = await getGroupFamilyIds(dto.studentGroupId)
     const groupConflict = await prisma.scheduleTemplate.findFirst({
       where: {
-        studentGroupId: dto.studentGroupId,
+        studentGroupId: { in: familyIds },
         dayOfWeek: dto.dayOfWeek as never,
         academicYear: dto.academicYear,
         AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
@@ -261,11 +264,12 @@ export async function validateEntryConflicts(dto: EntryConflictDto): Promise<Val
     }
   }
 
-  // Konflikt grupy w konkretnych wpisach
+  // Konflikt grupy w konkretnych wpisach (uwzględnia całą rodzinę: przodkowie + potomkowie)
   if (dto.studentGroupId) {
+    const familyIds = await getGroupFamilyIds(dto.studentGroupId)
     const groupConflict = await prisma.scheduleEntry.findFirst({
       where: {
-        studentGroupId: dto.studentGroupId,
+        studentGroupId: { in: familyIds },
         date: dto.date,
         AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
         ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),

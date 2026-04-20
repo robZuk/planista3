@@ -429,12 +429,15 @@ function AddTemplateDialog({
   onSuccess: () => void
 }) {
   const qc = useQueryClient()
+  const { semesterType } = useAcademicYearStore()
+  const availableSemesters = SEMESTER_TYPE_NUMBERS[semesterType]
 
   // ── Filter state (cascade) ────────────────────────────────────
   const [facultyId,      setFacultyId]      = useState('')
   const [fieldId,        setFieldId]        = useState('')
   const [specId,         setSpecId]         = useState('')
   const [effectiveMode,  setEffectiveMode]  = useState<string>(studyMode ?? 'FULL_TIME')
+  const [filterSemester, setFilterSemester] = useState<number>(semester)
   const [groupId,        setGroupId]        = useState('')
 
   // ── Form state ────────────────────────────────────────────────
@@ -457,6 +460,7 @@ function AddTemplateDialog({
     if (!open) return
     setFacultyId(''); setFieldId(''); setSpecId('')
     setEffectiveMode(studyMode ?? 'FULL_TIME')
+    setFilterSemester(semester)
     setGroupId('')
     setForm(emptyForm())
     setError('')
@@ -479,8 +483,8 @@ function AddTemplateDialog({
     enabled: open,
   })
   const { data: groupsData } = useQuery({
-    queryKey: ['groups', semester, academicYear],
-    queryFn:  () => groupsApi.getAll({ semester, academicYear }),
+    queryKey: ['groups', filterSemester, academicYear],
+    queryFn:  () => groupsApi.getAll({ semester: filterSemester, academicYear }),
     enabled: open,
   })
   const { data: buildingsData } = useQuery({
@@ -685,6 +689,19 @@ function AddTemplateDialog({
                   <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Wszystkie" /></SelectTrigger>
                   <SelectContent>
                     {filteredSpecs.map(s => <SelectItem key={s.id} value={s.id}>{s.shortName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Semestr</Label>
+                <Select value={String(filterSemester)} onValueChange={v => {
+                  setFilterSemester(Number(v)); setGroupId('')
+                  setForm(f => ({ ...f, curriculumEntryId: '', classType: '', roomId: '' }))
+                }}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {availableSemesters.map(n => <SelectItem key={n} value={String(n)}>Sem. {n}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

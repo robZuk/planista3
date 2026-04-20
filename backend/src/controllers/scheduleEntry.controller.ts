@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import { isNotFoundError } from '../lib/prismaErrors'
 import { validateEntryConflicts } from '../services/scheduleValidation'
+import { getGroupFamilyIds } from '../lib/groupFamily'
 
 const entryInclude = {
   room: {
@@ -310,9 +311,10 @@ export const move = async (req: Request, res: Response) => {
     }
 
     if (existing.studentGroupId) {
+      const familyIds = await getGroupFamilyIds(existing.studentGroupId)
       const groupConflict = await prisma.scheduleEntry.findFirst({
         where: {
-          studentGroupId: existing.studentGroupId,
+          studentGroupId: { in: familyIds },
           date: { in: futureDates },
           AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
           id: { notIn: futureIds },

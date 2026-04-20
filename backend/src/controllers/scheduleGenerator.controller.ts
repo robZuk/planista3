@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { ClassType, DayOfWeek, StudyMode, WeekType } from '@prisma/client'
 import prisma from '../lib/prisma'
+import { getGroupFamilyIds } from '../lib/groupFamily'
 
 const dayOfWeekMap: Record<number, DayOfWeek> = {
   1: 'MONDAY', 2: 'TUESDAY', 3: 'WEDNESDAY', 4: 'THURSDAY',
@@ -545,27 +546,6 @@ function deriveCalendarDates(academicYear: string, semesterType: 'WINTER' | 'SUM
   }
 }
 
-// Pobiera z bazy wszystkie ID z rodziny grupy (przodkowie + potomkowie + ona sama).
-// Używane przy walidacji konfliktów w generateSemester.
-async function getGroupFamilyIds(groupId: string): Promise<string[]> {
-  const result: string[] = [groupId]
-  // Przodkowie
-  let curr = groupId
-  while (true) {
-    const g = await prisma.studentGroup.findUnique({ where: { id: curr }, select: { parentGroupId: true } })
-    if (!g?.parentGroupId) break
-    result.push(g.parentGroupId)
-    curr = g.parentGroupId
-  }
-  // Potomkowie (BFS)
-  const queue = [groupId]
-  while (queue.length > 0) {
-    const id = queue.shift()!
-    const children = await prisma.studentGroup.findMany({ where: { parentGroupId: id }, select: { id: true } })
-    for (const c of children) { result.push(c.id); queue.push(c.id) }
-  }
-  return result
-}
 
 export const generateSemester = async (req: Request, res: Response) => {
   try {
