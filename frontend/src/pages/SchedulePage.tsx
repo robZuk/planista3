@@ -17,7 +17,7 @@ import { groupsApi } from '@/api/groups'
 import { curriculumApi } from '@/api/curriculum'
 import { facultiesApi, fieldsApi, specsApi } from '@/api/faculties'
 import { useAcademicYearStore, SEMESTER_TYPE_NUMBERS } from '@/store/academicYearStore'
-import { Pencil, ChevronDown } from 'lucide-react'
+import { Pencil, ChevronDown, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -3026,6 +3026,94 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
   )
 }
 
+// ─── Dialog zarządzania dniami wolnymi ────────────────────────
+
+function HolidaysDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [date, setDate] = useState('')
+  const [name, setName] = useState('')
+
+  const { data } = useQuery({
+    queryKey: ['holidays-all'],
+    queryFn: () => scheduleApi.getHolidays(),
+    enabled: open,
+  })
+  const holidays = data?.data.data ?? []
+
+  const addMutation = useMutation({
+    mutationFn: () => scheduleApi.createHoliday({ date, name: name.trim() }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['holidays'] })
+      void qc.invalidateQueries({ queryKey: ['holidays-all'] })
+      setDate('')
+      setName('')
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
+      toast.error(msg ?? 'Nie udało się dodać dnia wolnego')
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => scheduleApi.deleteHoliday(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['holidays'] })
+      void qc.invalidateQueries({ queryKey: ['holidays-all'] })
+    },
+  })
+
+  const canAdd = !!date && !!name.trim() && !addMutation.isPending
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Dni wolne</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex gap-2 mb-1">
+          <div className="flex flex-col gap-1 flex-1">
+            <Label className="text-xs">Data</Label>
+            <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-8 text-sm" />
+          </div>
+          <div className="flex flex-col gap-1 flex-[2]">
+            <Label className="text-xs">Nazwa</Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="np. Dzień Niepodległości" className="h-8 text-sm"
+              onKeyDown={e => { if (e.key === 'Enter' && canAdd) addMutation.mutate() }} />
+          </div>
+          <div className="flex flex-col gap-1 justify-end">
+            <Label className="text-xs invisible">_</Label>
+            <Button size="sm" className="h-8 text-xs" disabled={!canAdd} onClick={() => addMutation.mutate()}>
+              Dodaj
+            </Button>
+          </div>
+        </div>
+
+        <div className="max-h-72 overflow-y-auto divide-y divide-border rounded border border-border mt-1">
+          {holidays.length === 0 && (
+            <p className="text-center text-sm text-muted-foreground py-6">Brak dni wolnych</p>
+          )}
+          {holidays.map(h => (
+            <div key={h.id} className="flex items-center justify-between px-3 py-2 text-sm">
+              <span className="font-medium tabular-nums">{h.date.slice(0, 10)}</span>
+              <span className="flex-1 px-3 text-muted-foreground truncate">{h.name}</span>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(h.id)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Zamknij</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Zakładka Kalendarz semestru ───────────────────────────────
 
 function CalendarTab({ academicYear }: { academicYear: string }) {
@@ -3067,6 +3155,7 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overSlot, setOverSlot] = useState<string | null>(null)
   const [showCalendarDialog, setShowCalendarDialog] = useState(false)
+  const [showHolidaysDialog, setShowHolidaysDialog] = useState(false)
   const [addSlot, setAddSlot] = useState<{ date: string; startTime: string } | null>(null)
 
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart])
@@ -3545,22 +3634,30 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
 
           <div className="flex flex-col justify-end gap-1 ml-auto">
             <label className="text-[11px] text-transparent select-none">_</label>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="h-8 text-xs"
-              disabled={deleteManyMutation.isPending}
-              onClick={() => {
-                if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
-                  deleteManyMutation.mutate()
-                }
-              }}
-            >
-              {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="h-8 text-xs"
+                onClick={() => setShowHolidaysDialog(true)}>
+                Dni wolne
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={deleteManyMutation.isPending}
+                onClick={() => {
+                  if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
+                    deleteManyMutation.mutate()
+                  }
+                }}
+              >
+                {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
+
+      <HolidaysDialog open={showHolidaysDialog} onClose={() => setShowHolidaysDialog(false)} />
 
       {/* Nawigacja tygodnia */}
       <div className="flex items-center gap-2 mb-3">
