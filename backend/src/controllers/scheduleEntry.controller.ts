@@ -285,11 +285,15 @@ export const move = async (req: Request, res: Response) => {
       return d
     })
 
-    // Walidacja kolizji dla wszystkich przyszłych dat jednym zapytaniem per typ
+    // Walidacja kolizji — OR zakresów dziennych (odporne na rozdźwięk południe/północ UTC)
+    const dateOrRanges = futureDates.map(d => ({
+      date: { gte: d, lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) },
+    }))
+
     const roomConflict = await prisma.scheduleEntry.findFirst({
       where: {
         roomId: targetRoomId,
-        date: { in: futureDates },
+        OR: dateOrRanges,
         AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
         id: { notIn: futureIds },
       },
@@ -304,7 +308,7 @@ export const move = async (req: Request, res: Response) => {
     const instructorConflict = await prisma.scheduleEntry.findFirst({
       where: {
         instructorId: targetInstructorId,
-        date: { in: futureDates },
+        OR: dateOrRanges,
         AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
         id: { notIn: futureIds },
       },
@@ -321,7 +325,7 @@ export const move = async (req: Request, res: Response) => {
       const groupConflict = await prisma.scheduleEntry.findFirst({
         where: {
           studentGroupId: { in: familyIds },
-          date: { in: futureDates },
+          OR: dateOrRanges,
           AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
           id: { notIn: futureIds },
         },

@@ -74,6 +74,12 @@ function minsFromTime(t: string): number {
   return (h ?? 0) * 60 + (m ?? 0)
 }
 
+// Zakres obejmujący cały dzień UTC — odporna na różnice między północą a południem
+function dayRange(d: Date): { gte: Date; lt: Date } {
+  const day = d.toISOString().slice(0, 10)
+  return { gte: new Date(day + 'T00:00:00.000Z'), lt: new Date(day + 'T24:00:00.000Z') }
+}
+
 
 
 // Walidacja szablonu (wzorzec tygodniowy)
@@ -218,10 +224,12 @@ export async function validateEntryConflicts(dto: EntryConflictDto): Promise<Val
     }
   }
 
+  const range = dayRange(dto.date)
+
   const roomConflict = await prisma.scheduleEntry.findFirst({
     where: {
       roomId: dto.roomId,
-      date: dto.date,
+      date: range,
       AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
       ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
     },
@@ -244,7 +252,7 @@ export async function validateEntryConflicts(dto: EntryConflictDto): Promise<Val
   const instructorConflict = await prisma.scheduleEntry.findFirst({
     where: {
       instructorId: dto.instructorId,
-      date: dto.date,
+      date: range,
       AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
       ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
     },
@@ -270,7 +278,7 @@ export async function validateEntryConflicts(dto: EntryConflictDto): Promise<Val
     const groupConflict = await prisma.scheduleEntry.findFirst({
       where: {
         studentGroupId: { in: familyIds },
-        date: dto.date,
+        date: range,
         AND: [{ startTime: { lt: dto.endTime } }, { endTime: { gt: dto.startTime } }],
         ...(dto.excludeId ? { id: { not: dto.excludeId } } : {}),
       },

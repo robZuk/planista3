@@ -38,9 +38,9 @@ function getDatesForDayOfWeek(
   const targetDay = { MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5, SATURDAY: 6, SUNDAY: 0 }[dayOfWeek]
   const dates: Date[] = []
 
-  // Użyj UTC noon — odporne na zmiany czasu (DST ±1h nie przekracza granicy doby)
+  // UTC midnight — operacje na UTCDate są niezależne od DST
   const current = new Date(startDate)
-  current.setUTCHours(12, 0, 0, 0)
+  current.setUTCHours(0, 0, 0, 0)
   while (current.getUTCDay() !== targetDay) {
     current.setUTCDate(current.getUTCDate() + 1)
   }
