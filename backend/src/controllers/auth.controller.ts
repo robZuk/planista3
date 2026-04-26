@@ -77,7 +77,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
     res.status(201).json({ data: user, message: 'Konto utworzone' })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -122,7 +122,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       },
     })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -177,7 +177,7 @@ export const refresh = async (req: Request, res: Response): Promise<void> => {
       },
     })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -192,7 +192,7 @@ export const logout = async (req: AuthRequest, res: Response): Promise<void> => 
 
     res.json({ data: null, message: 'Wylogowano' })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -219,6 +219,6 @@ export const me = async (req: AuthRequest, res: Response): Promise<void> => {
 
     res.json({ data: user })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

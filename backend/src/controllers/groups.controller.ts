@@ -41,7 +41,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -61,7 +61,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Grupa nie znaleziona' })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -234,7 +234,7 @@ export const generate = async (req: Request, res: Response) => {
 
     res.json({ data: { proposal, meta: { totalStudents, academicYear } } })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -303,7 +303,7 @@ export const confirm = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Grupa o tej nazwie już istnieje w tym semestrze i roku akademickim' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -346,7 +346,7 @@ export const createOne = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Grupa o tej nazwie już istnieje w tym semestrze i roku akademickim' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -373,7 +373,7 @@ export const update = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Grupa o tej nazwie już istnieje w tym semestrze i roku akademickim' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -394,7 +394,7 @@ export const remove = async (req: Request, res: Response) => {
     res.json({ message: 'Grupa usunięta' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Grupa nie znaleziona' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -410,6 +410,6 @@ export const removeAll = async (req: Request, res: Response) => {
     })
     res.json({ message: `Usunięto ${result.count} grup` })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

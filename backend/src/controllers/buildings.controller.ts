@@ -13,7 +13,7 @@ export const getAll = async (_req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -26,7 +26,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Budynek nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -44,7 +44,7 @@ export const create = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Budynek o tej nazwie już istnieje' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -63,7 +63,7 @@ export const update = async (req: Request, res: Response) => {
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Budynek nie znaleziony' })
     if (isUniqueConstraintError(error)) return res.status(409).json({ error: 'Nazwa już zajęta' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -80,7 +80,7 @@ export const remove = async (req: Request, res: Response) => {
     await prisma.building.delete({ where: { id: req.params.id } })
     res.json({ message: 'Budynek usunięty' })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -94,7 +94,7 @@ export const getRooms = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -116,7 +116,7 @@ export const createRoom = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Sala o tym numerze już istnieje w budynku' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -135,7 +135,7 @@ export const updateRoom = async (req: Request, res: Response) => {
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Sala nie znaleziona' })
     if (isUniqueConstraintError(error)) return res.status(409).json({ error: 'Numer sali już zajęty' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -145,6 +145,6 @@ export const removeRoom = async (req: Request, res: Response) => {
     res.json({ message: 'Sala usunięta' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Sala nie znaleziona' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

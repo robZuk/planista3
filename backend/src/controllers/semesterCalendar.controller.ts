@@ -10,7 +10,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -20,7 +20,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Kalendarz nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -54,7 +54,7 @@ export const create = async (req: Request, res: Response) => {
     if ((error as { code?: string }).code === 'P2002') {
       return res.status(409).json({ error: 'Kalendarz dla tego semestru i trybu już istnieje' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -77,7 +77,7 @@ export const update = async (req: Request, res: Response) => {
     res.json({ data, message: 'Kalendarz zaktualizowany' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Kalendarz nie znaleziony' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -87,6 +87,6 @@ export const remove = async (req: Request, res: Response) => {
     res.json({ message: 'Kalendarz usunięty' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Kalendarz nie znaleziony' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

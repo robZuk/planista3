@@ -13,7 +13,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -23,7 +23,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Przedmiot nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -37,7 +37,7 @@ export const create = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Przedmiot o tej nazwie lub kodzie już istnieje' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -52,7 +52,7 @@ export const update = async (req: Request, res: Response) => {
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Przedmiot nie znaleziony' })
     if (isUniqueConstraintError(error)) return res.status(409).json({ error: 'Nazwa lub kod już zajęte' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -69,6 +69,6 @@ export const remove = async (req: Request, res: Response) => {
     await prisma.subject.delete({ where: { id: req.params.id } })
     res.json({ message: 'Przedmiot usunięty' })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

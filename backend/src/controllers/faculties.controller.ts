@@ -7,7 +7,7 @@ export const getAll = async (_req: Request, res: Response) => {
     const data = await prisma.faculty.findMany({ orderBy: { name: 'asc' } })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -20,7 +20,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Wydział nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -36,7 +36,7 @@ export const create = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Wydział o tej nazwie lub skrócie już istnieje' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -51,7 +51,7 @@ export const update = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wydział nie znaleziony' })
     if (isUniqueConstraintError(error)) return res.status(409).json({ error: 'Nazwa lub skrót już zajęte' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -68,7 +68,7 @@ export const remove = async (req: Request, res: Response) => {
     await prisma.faculty.delete({ where: { id: req.params.id } })
     res.json({ message: 'Wydział usunięty' })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 

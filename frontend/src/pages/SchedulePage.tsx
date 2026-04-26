@@ -392,7 +392,7 @@ type SpecWithChain = {
 
 // Room types allowed per class type
 const ROOM_TYPES_FOR_CLASS: Record<string, string[]> = {
-  LECTURE:  ['LECTURE'],
+  LECTURE:  ['LECTURE', 'EXERCISE'],
   EXERCISE: ['EXERCISE', 'LECTURE'],
   LAB:      ['LAB', 'COMPUTER_LAB'],
   PROJECT:  ['EXERCISE', 'COMPUTER_LAB', 'SEMINAR'],
@@ -2495,12 +2495,17 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
 
   const activeTemplate = activeId ? templates.find(t => t.id === activeId) : null
 
-  // Zestaw ID całej rodziny grupy (przodkowie + potomkowie) na podstawie załadowanych szablonów
+  // Zestaw ID całej rodziny grupy (przodkowie + potomkowie)
+  // Źródło hierarchii: allGroups (pełne drzewo pola kierunku) + szablony jako fallback
   const activeGroupFamilyIds = useMemo((): Set<string> => {
     const gid = activeTemplate?.studentGroup?.id
     if (!gid) return new Set()
-    const allGroups = allTemplates.flatMap(t => t.studentGroup ? [t.studentGroup] : [])
-    const idToParent = new Map(allGroups.map(g => [g.id, g.parentGroupId]))
+    const idToParent = new Map<string, string | null | undefined>()
+    for (const g of allGroups) idToParent.set(g.id, g.parentGroupId)
+    for (const t of allTemplates) {
+      if (t.studentGroup && !idToParent.has(t.studentGroup.id))
+        idToParent.set(t.studentGroup.id, t.studentGroup.parentGroupId)
+    }
     const family = new Set<string>([gid])
     let cur: string | null | undefined = idToParent.get(gid)
     while (cur) { family.add(cur); cur = idToParent.get(cur) }
@@ -2512,7 +2517,7 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
       }
     }
     return family
-  }, [activeTemplate, allTemplates])
+  }, [activeTemplate, allTemplates, allGroups])
 
   const dragInfo = useMemo(() => {
     if (!activeTemplate) return null
@@ -2583,7 +2588,7 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
     const timeWindowViolation = !timeWindowOk
     const valid = conflicts.length === 0 && timeWindowOk
     return { dayKey, startMins, blockMins, valid, conflicts, timeWindowViolation }
-  }, [activeTemplate, overSlot, allByDay])
+  }, [activeTemplate, overSlot, allByDay, activeGroupFamilyIds])
 
   const qc = useQueryClient()
 

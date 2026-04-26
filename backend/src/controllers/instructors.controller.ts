@@ -12,7 +12,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -25,7 +25,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Prowadzący nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -49,7 +49,7 @@ export const create = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Prowadzący z tym e-mailem już istnieje' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -70,7 +70,7 @@ export const update = async (req: Request, res: Response) => {
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Prowadzący nie znaleziony' })
     if (isUniqueConstraintError(error)) return res.status(409).json({ error: 'E-mail już zajęty' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -80,6 +80,6 @@ export const remove = async (req: Request, res: Response) => {
     res.json({ message: 'Prowadzący usunięty' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Prowadzący nie znaleziony' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

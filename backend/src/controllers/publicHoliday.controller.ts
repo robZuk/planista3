@@ -14,7 +14,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -34,7 +34,7 @@ export const create = async (req: Request, res: Response) => {
     if ((error as { code?: string }).code === 'P2002') {
       return res.status(409).json({ error: 'Ten dzień jest już oznaczony jako wolny' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -44,6 +44,6 @@ export const remove = async (req: Request, res: Response) => {
     res.json({ message: 'Dzień wolny usunięty' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Dzień wolny nie znaleziony' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

@@ -38,7 +38,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -51,7 +51,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Wpis nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -111,7 +111,7 @@ export const create = async (req: Request, res: Response) => {
     })
     res.status(201).json({ data, message: 'Wpis dodany' })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -165,7 +165,7 @@ export const update = async (req: Request, res: Response) => {
     res.json({ data, message: 'Wpis zaktualizowany' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -184,7 +184,7 @@ export const remove = async (req: Request, res: Response) => {
     res.json({ message: 'Wpis usunięty' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -202,7 +202,7 @@ export const removeMany = async (req: Request, res: Response) => {
     })
     res.json({ data: { deleted: count } })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -340,12 +340,16 @@ export const move = async (req: Request, res: Response) => {
     }
     const newDayOfWeek = dayMap[targetDate.getUTCDay()]
 
+    const toMinsMove = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m ?? 0) }
+    const newAcademicHours = Math.max(1, Math.round((toMinsMove(newEndTime) - toMinsMove(newStartTime)) / 45))
+
     await prisma.scheduleTemplate.update({
       where: { id: existing.templateId },
       data: {
         dayOfWeek: newDayOfWeek,
         startTime: newStartTime,
         endTime: newEndTime,
+        academicHours: newAcademicHours,
         ...(newRoomId ? { roomId: newRoomId } : {}),
         ...(newInstructorId ? { instructorId: newInstructorId } : {}),
       },
@@ -359,6 +363,7 @@ export const move = async (req: Request, res: Response) => {
             date: futureDates[i],
             startTime: newStartTime,
             endTime: newEndTime,
+            academicHours: newAcademicHours,
             ...(newRoomId ? { roomId: newRoomId } : {}),
             ...(newInstructorId ? { instructorId: newInstructorId } : {}),
           },
@@ -372,6 +377,6 @@ export const move = async (req: Request, res: Response) => {
     })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

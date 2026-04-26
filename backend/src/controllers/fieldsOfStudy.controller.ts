@@ -12,7 +12,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -25,7 +25,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Kierunek nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -45,7 +45,7 @@ export const create = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Kierunek o tej nazwie już istnieje w tym wydziale' })
     }
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -60,7 +60,7 @@ export const update = async (req: Request, res: Response) => {
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Kierunek nie znaleziony' })
     if (isUniqueConstraintError(error)) return res.status(409).json({ error: 'Nazwa już zajęta' })
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -77,6 +77,6 @@ export const remove = async (req: Request, res: Response) => {
     await prisma.fieldOfStudy.delete({ where: { id: req.params.id } })
     res.json({ message: 'Kierunek usunięty' })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }

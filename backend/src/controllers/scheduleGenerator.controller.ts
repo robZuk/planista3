@@ -521,7 +521,7 @@ export const generateTemplate = async (req: Request, res: Response) => {
 
     res.json({ data: allProposals, meta: { total: allProposals.length } })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
 
@@ -704,6 +704,6 @@ export const generateSemester = async (req: Request, res: Response) => {
       message: `Wygenerowano ${created.length} wpisów, pominięto ${actualSkipped.length}, już istnieje: ${alreadyExists}, konflikty: ${conflicts.length}`,
     })
   } catch (error) {
-    res.status(500).json({ error: 'Błąd serwera', details: error })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
   }
 }
