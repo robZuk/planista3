@@ -17,7 +17,7 @@ import { groupsApi } from '@/api/groups'
 import { curriculumApi } from '@/api/curriculum'
 import { facultiesApi, fieldsApi, specsApi } from '@/api/faculties'
 import { useAcademicYearStore, SEMESTER_TYPE_NUMBERS } from '@/store/academicYearStore'
-import { Pencil, ChevronDown, Trash2 } from 'lucide-react'
+import { Pencil, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -352,7 +352,7 @@ function DroppableSlot({
 function TimeColumn() {
   return (
     <div className="w-14 flex-shrink-0 border-r border-border">
-      <div className="h-10 border-b border-border" />
+      <div className="min-h-[3.5rem] border-b border-border" />
       <div style={{ height: SLOTS.length * SLOT_HEIGHT }} className="relative">
         {SLOTS.map((slot, i) => {
           const isHour = slot.endsWith(':00')
@@ -392,7 +392,7 @@ type SpecWithChain = {
 
 // Room types allowed per class type
 const ROOM_TYPES_FOR_CLASS: Record<string, string[]> = {
-  LECTURE:  ['LECTURE', 'EXERCISE'],
+  LECTURE:  ['LECTURE'],
   EXERCISE: ['EXERCISE', 'LECTURE'],
   LAB:      ['LAB', 'COMPUTER_LAB'],
   PROJECT:  ['EXERCISE', 'COMPUTER_LAB', 'SEMINAR'],
@@ -1657,6 +1657,7 @@ function EditEntryDialog({
   onSuccess: () => void
 }) {
   const qc = useQueryClient()
+  const [scope, setScope] = useState<'ONE' | 'ALL'>('ONE')
   const [date, setDate] = useState(entry.date.slice(0, 10))
   const [startTime, setStartTime] = useState(entry.startTime)
   const [endTime, setEndTime] = useState(entry.endTime)
@@ -1677,9 +1678,14 @@ function EditEntryDialog({
   const instructors = instructorsData?.data.data ?? []
 
   const mutation = useMutation({
-    mutationFn: () => scheduleApi.updateEntry(entry.id, { date, startTime, endTime, roomId, instructorId }),
+    mutationFn: () => scheduleApi.updateEntry(entry.id, {
+      ...(scope === 'ONE' ? { date } : {}),
+      startTime, endTime, roomId, instructorId, scope,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['entries'] })
+      qc.invalidateQueries({ queryKey: ['templates'] })
+      qc.invalidateQueries({ queryKey: ['templates-all'] })
       onSuccess()
       onClose()
     },
@@ -1698,11 +1704,27 @@ function EditEntryDialog({
         <div className="space-y-3 py-2 text-sm">
           {error && <p className="text-destructive text-sm">{error}</p>}
           <p className="font-medium">{entry.curriculumEntry.subject.name} · {CLASS_LABELS[entry.classType]}</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 space-y-1">
-              <Label>Data</Label>
-              <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+
+          {entry.templateId && (
+            <div className="space-y-1.5 rounded-md border border-border p-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" checked={scope === 'ONE'} onChange={() => setScope('ONE')} />
+                <span>Tylko ten termin ({new Date(entry.date).toLocaleDateString('pl-PL')})</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" checked={scope === 'ALL'} onChange={() => setScope('ALL')} />
+                <span>Wszystkie przyszłe terminy z tego wzorca</span>
+              </label>
             </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            {scope === 'ONE' && (
+              <div className="col-span-2 space-y-1">
+                <Label>Data</Label>
+                <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+              </div>
+            )}
             <div className="space-y-1">
               <Label>Od</Label>
               <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
@@ -2495,17 +2517,12 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
 
   const activeTemplate = activeId ? templates.find(t => t.id === activeId) : null
 
-  // Zestaw ID całej rodziny grupy (przodkowie + potomkowie)
-  // Źródło hierarchii: allGroups (pełne drzewo pola kierunku) + szablony jako fallback
+  // Zestaw ID całej rodziny grupy (przodkowie + potomkowie) na podstawie załadowanych szablonów
   const activeGroupFamilyIds = useMemo((): Set<string> => {
     const gid = activeTemplate?.studentGroup?.id
     if (!gid) return new Set()
-    const idToParent = new Map<string, string | null | undefined>()
-    for (const g of allGroups) idToParent.set(g.id, g.parentGroupId)
-    for (const t of allTemplates) {
-      if (t.studentGroup && !idToParent.has(t.studentGroup.id))
-        idToParent.set(t.studentGroup.id, t.studentGroup.parentGroupId)
-    }
+    const allGroups = allTemplates.flatMap(t => t.studentGroup ? [t.studentGroup] : [])
+    const idToParent = new Map(allGroups.map(g => [g.id, g.parentGroupId]))
     const family = new Set<string>([gid])
     let cur: string | null | undefined = idToParent.get(gid)
     while (cur) { family.add(cur); cur = idToParent.get(cur) }
@@ -2517,7 +2534,7 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
       }
     }
     return family
-  }, [activeTemplate, allTemplates, allGroups])
+  }, [activeTemplate, allTemplates])
 
   const dragInfo = useMemo(() => {
     if (!activeTemplate) return null
@@ -2588,7 +2605,7 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
     const timeWindowViolation = !timeWindowOk
     const valid = conflicts.length === 0 && timeWindowOk
     return { dayKey, startMins, blockMins, valid, conflicts, timeWindowViolation }
-  }, [activeTemplate, overSlot, allByDay, activeGroupFamilyIds])
+  }, [activeTemplate, overSlot, allByDay])
 
   const qc = useQueryClient()
 
@@ -3026,94 +3043,6 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
   )
 }
 
-// ─── Dialog zarządzania dniami wolnymi ────────────────────────
-
-function HolidaysDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const qc = useQueryClient()
-  const [date, setDate] = useState('')
-  const [name, setName] = useState('')
-
-  const { data } = useQuery({
-    queryKey: ['holidays-all'],
-    queryFn: () => scheduleApi.getHolidays(),
-    enabled: open,
-  })
-  const holidays = data?.data.data ?? []
-
-  const addMutation = useMutation({
-    mutationFn: () => scheduleApi.createHoliday({ date, name: name.trim() }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['holidays'] })
-      void qc.invalidateQueries({ queryKey: ['holidays-all'] })
-      setDate('')
-      setName('')
-    },
-    onError: (e: unknown) => {
-      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
-      toast.error(msg ?? 'Nie udało się dodać dnia wolnego')
-    },
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => scheduleApi.deleteHoliday(id),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['holidays'] })
-      void qc.invalidateQueries({ queryKey: ['holidays-all'] })
-    },
-  })
-
-  const canAdd = !!date && !!name.trim() && !addMutation.isPending
-
-  return (
-    <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Dni wolne</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex gap-2 mb-1">
-          <div className="flex flex-col gap-1 flex-1">
-            <Label className="text-xs">Data</Label>
-            <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-8 text-sm" />
-          </div>
-          <div className="flex flex-col gap-1 flex-[2]">
-            <Label className="text-xs">Nazwa</Label>
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="np. Dzień Niepodległości" className="h-8 text-sm"
-              onKeyDown={e => { if (e.key === 'Enter' && canAdd) addMutation.mutate() }} />
-          </div>
-          <div className="flex flex-col gap-1 justify-end">
-            <Label className="text-xs invisible">_</Label>
-            <Button size="sm" className="h-8 text-xs" disabled={!canAdd} onClick={() => addMutation.mutate()}>
-              Dodaj
-            </Button>
-          </div>
-        </div>
-
-        <div className="max-h-72 overflow-y-auto divide-y divide-border rounded border border-border mt-1">
-          {holidays.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground py-6">Brak dni wolnych</p>
-          )}
-          {holidays.map(h => (
-            <div key={h.id} className="flex items-center justify-between px-3 py-2 text-sm">
-              <span className="font-medium tabular-nums">{h.date.slice(0, 10)}</span>
-              <span className="flex-1 px-3 text-muted-foreground truncate">{h.name}</span>
-              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive"
-                disabled={deleteMutation.isPending}
-                onClick={() => deleteMutation.mutate(h.id)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ))}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Zamknij</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 // ─── Zakładka Kalendarz semestru ───────────────────────────────
 
 function CalendarTab({ academicYear }: { academicYear: string }) {
@@ -3155,7 +3084,6 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overSlot, setOverSlot] = useState<string | null>(null)
   const [showCalendarDialog, setShowCalendarDialog] = useState(false)
-  const [showHolidaysDialog, setShowHolidaysDialog] = useState(false)
   const [addSlot, setAddSlot] = useState<{ date: string; startTime: string } | null>(null)
 
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart])
@@ -3351,6 +3279,7 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
     const blockMins = durationMins
     const result: Record<string, Array<{ top: number; height: number }>> = {}
     for (const day of days) {
+      if (holidaySet.has(isoDate(weekDates[day.key]))) { result[day.key] = []; continue }
       const windowFrom = isPartTimeEntry ? partTimeWindowFrom(day.key) : START_MINS
       if (windowFrom === null) { result[day.key] = []; continue }
       const occupied = (byDayAll[day.key] ?? [])
@@ -3365,7 +3294,7 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
       result[day.key] = getValidSlots(occupied, blockMins, durationMins, windowFrom)
     }
     return result
-  }, [activeEntry, byDayAll, days, isPartTimeEntry])
+  }, [activeEntry, byDayAll, days, isPartTimeEntry, holidaySet, weekDates])
 
   const hoverGhostEntry = useMemo(() => {
     if (!activeEntry || !overSlot) return null
@@ -3376,6 +3305,9 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
     const blockMins = durationMins
     if (startMins + blockMins > END_HOUR * 60) return null
     const proposedEnd = startMins + durationMins
+    if (holidaySet.has(isoDate(weekDates[dayKey]))) {
+      return { dayKey, startMins, blockMins, valid: false, conflicts: [], timeWindowViolation: false, isHoliday: true }
+    }
     const others = (byDayAll[dayKey] ?? []).filter(e =>
       e.id !== activeEntry.id && (
         e.room.id === activeEntry.room.id ||
@@ -3394,8 +3326,8 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
     }
     const timeWindowViolation = !timeWindowOk
     const valid = conflicts.length === 0 && timeWindowOk
-    return { dayKey, startMins, blockMins, valid, conflicts, timeWindowViolation }
-  }, [activeEntry, overSlot, byDayAll, isPartTimeEntry])
+    return { dayKey, startMins, blockMins, valid, conflicts, timeWindowViolation, isHoliday: false }
+  }, [activeEntry, overSlot, byDayAll, isPartTimeEntry, holidaySet, weekDates])
 
   function prevWeek() {
     setWeekStart(d => {
@@ -3634,30 +3566,22 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
 
           <div className="flex flex-col justify-end gap-1 ml-auto">
             <label className="text-[11px] text-transparent select-none">_</label>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="h-8 text-xs"
-                onClick={() => setShowHolidaysDialog(true)}>
-                Dni wolne
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-8 text-xs"
-                disabled={deleteManyMutation.isPending}
-                onClick={() => {
-                  if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
-                    deleteManyMutation.mutate()
-                  }
-                }}
-              >
-                {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
-              </Button>
-            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 text-xs"
+              disabled={deleteManyMutation.isPending}
+              onClick={() => {
+                if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
+                  deleteManyMutation.mutate()
+                }
+              }}
+            >
+              {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
+            </Button>
           </div>
         </div>
       </div>
-
-      <HolidaysDialog open={showHolidaysDialog} onClose={() => setShowHolidaysDialog(false)} />
 
       {/* Nawigacja tygodnia */}
       <div className="flex items-center gap-2 mb-3">
@@ -3701,7 +3625,7 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
                   key={day.key}
                   className={`flex-1 border-r border-border last:border-r-0 ${holidayName ? 'bg-red-500/5' : ''}`}
                 >
-                  <div className={`${holidayName ? 'min-h-[3.5rem]' : 'h-10'} border-b border-border flex flex-col items-center justify-center gap-0.5 text-xs font-medium px-1 ${holidayName ? 'bg-red-500/10 text-red-700 dark:text-red-400' : ''}`}>
+                  <div className={`min-h-[3.5rem] border-b border-border flex flex-col items-center justify-center gap-0.5 text-xs font-medium px-1 ${holidayName ? 'bg-red-500/10 text-red-700 dark:text-red-400' : ''}`}>
                     <span>{day.label}</span>
                     <span className="text-[10px] opacity-70">{formatDate(dayDate)}</span>
                     {holidayName && <span className="text-[10px] text-center leading-tight">{holidayName}</span>}
@@ -3760,7 +3684,11 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
                           }}
                             className="pointer-events-none bg-red-950/95 rounded border border-red-500 px-1.5 py-1"
                           >
-                            {hoverGhostEntry.timeWindowViolation ? (
+                            {hoverGhostEntry.isHoliday ? (
+                              <p className="text-[10px] font-bold text-red-300 uppercase tracking-wide">
+                                Dzień wolny
+                              </p>
+                            ) : hoverGhostEntry.timeWindowViolation ? (
                               <>
                                 <p className="text-[10px] font-bold text-red-300 uppercase tracking-wide mb-1">
                                   Poza oknem czasowym

@@ -42,7 +42,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -55,7 +55,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Szablon nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -105,7 +105,7 @@ export const create = async (req: Request, res: Response) => {
     })
     res.status(201).json({ data, message: 'Szablon zajęć dodany' })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -158,7 +158,7 @@ export const update = async (req: Request, res: Response) => {
     res.json({ data, message: 'Szablon zaktualizowany' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Szablon nie znaleziony' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -168,7 +168,7 @@ export const remove = async (req: Request, res: Response) => {
     res.json({ message: 'Szablon usunięty' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Szablon nie znaleziony' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -184,7 +184,7 @@ export const removeMany = async (req: Request, res: Response) => {
     })
     res.json({ data: { deleted: count } })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -202,7 +202,7 @@ export const getSummary = async (req: Request, res: Response) => {
     })
 
     if (curriculumEntries.length === 0) {
-      return res.json({ data: { semesters: [] } })
+      return res.status(404).json({ error: 'Wersja planu nie istnieje lub jest pusta' })
     }
 
     type SubjectProgress = {
@@ -251,6 +251,6 @@ export const getSummary = async (req: Request, res: Response) => {
 
     res.json({ data: { semesters } })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }

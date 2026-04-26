@@ -14,7 +14,7 @@ export const getAcademicYears = async (_req: Request, res: Response) => {
     })
     res.json({ data: rows.map(r => r.academicYear) })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -31,7 +31,7 @@ export const getVersions = async (_req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -48,7 +48,7 @@ export const getVersion = async (req: Request, res: Response) => {
     if (!version) return res.status(404).json({ error: 'Wersja planu nie znaleziona' })
     res.json({ data: version })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -72,7 +72,7 @@ export const createVersion = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Wersja planu dla tej specjalności, roku i trybu już istnieje' })
     }
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -90,7 +90,7 @@ export const updateVersion = async (req: Request, res: Response) => {
     res.json({ data, message: 'Wersja planu zaktualizowana' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wersja planu nie znaleziona' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -116,7 +116,7 @@ export const deleteVersion = async (req: Request, res: Response) => {
     res.json({ message: 'Wersja planu usunięta' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wersja planu nie znaleziona' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -173,7 +173,7 @@ export const getEntries = async (req: Request, res: Response) => {
 
     res.json({ data: { version, semesters } })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -230,7 +230,7 @@ export const addEntry = async (req: Request, res: Response) => {
     if (isUniqueConstraintError(error)) {
       return res.status(409).json({ error: 'Ten przedmiot jest już w siatce dla tego semestru' })
     }
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -264,7 +264,7 @@ export const updateEntry = async (req: Request, res: Response) => {
     res.json({ data, message: 'Wpis zaktualizowany' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -274,7 +274,7 @@ export const deleteEntry = async (req: Request, res: Response) => {
     res.json({ message: 'Wpis usunięty' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -339,6 +339,6 @@ export const validateVersion = async (req: Request, res: Response) => {
       },
     })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }

@@ -94,6 +94,7 @@ export const scheduleApi = {
     startTime: string
     endTime: string
     status: string
+    scope: 'ONE' | 'ALL'
   }>) => client.put<{ data: ScheduleEntry }>(`/schedule/entries/${id}`, data),
 
   deleteEntry: (id: string, cancel?: boolean) =>

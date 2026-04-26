@@ -38,7 +38,7 @@ export const getAll = async (req: Request, res: Response) => {
     })
     res.json({ data })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -51,7 +51,7 @@ export const getOne = async (req: Request, res: Response) => {
     if (!data) return res.status(404).json({ error: 'Wpis nie znaleziony' })
     res.json({ data })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -111,24 +111,125 @@ export const create = async (req: Request, res: Response) => {
     })
     res.status(201).json({ data, message: 'Wpis dodany' })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
 export const update = async (req: Request, res: Response) => {
   try {
-    const { roomId, instructorId, date, startTime, endTime, status } = req.body as Partial<{
+    const { roomId, instructorId, date, startTime, endTime, status, scope } = req.body as Partial<{
       roomId: string
       instructorId: string
       date: string
       startTime: string
       endTime: string
       status: 'SCHEDULED' | 'CANCELLED' | 'MAKEUP'
+      scope: 'ONE' | 'ALL'
     }>
 
     const existing = await prisma.scheduleEntry.findUnique({ where: { id: req.params.id } })
     if (!existing) return res.status(404).json({ error: 'Wpis nie znaleziony' })
 
+    const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m ?? 0) }
+
+    // ─── Scope ALL: zmień salę/prowadzącego/godziny na wszystkich przyszłych terminach wzorca ───
+    if (scope === 'ALL' && existing.templateId) {
+      const newRoomId       = roomId       ?? existing.roomId
+      const newInstructorId = instructorId ?? existing.instructorId
+      const newStartTime    = startTime    ?? existing.startTime
+      const newEndTime      = endTime      ?? existing.endTime
+
+      const fromDate = new Date(existing.date)
+      fromDate.setUTCHours(0, 0, 0, 0)
+
+      const futureEntries = await prisma.scheduleEntry.findMany({
+        where: { templateId: existing.templateId, date: { gte: fromDate }, status: { not: 'CANCELLED' } },
+        orderBy: { date: 'asc' },
+      })
+      const futureIds   = futureEntries.map(e => e.id)
+      const futureDates = futureEntries.map(e => { const d = new Date(e.date); d.setUTCHours(0, 0, 0, 0); return d })
+
+      if (roomId || startTime || endTime) {
+        const roomConflict = await prisma.scheduleEntry.findFirst({
+          where: {
+            roomId: newRoomId,
+            date: { in: futureDates },
+            status: { not: 'CANCELLED' },
+            AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
+            id: { notIn: futureIds },
+          },
+          include: { room: { include: { building: { select: { name: true } } } } },
+        })
+        if (roomConflict) {
+          return res.status(409).json({
+            error: 'ROOM_CONFLICT',
+            details: { conflictId: roomConflict.id, date: roomConflict.date.toISOString(), startTime: roomConflict.startTime, endTime: roomConflict.endTime },
+          })
+        }
+      }
+
+      if (instructorId || startTime || endTime) {
+        const instructorConflict = await prisma.scheduleEntry.findFirst({
+          where: {
+            instructorId: newInstructorId,
+            date: { in: futureDates },
+            status: { not: 'CANCELLED' },
+            AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
+            id: { notIn: futureIds },
+          },
+          include: { instructor: { select: { firstName: true, lastName: true, title: true } } },
+        })
+        if (instructorConflict) {
+          return res.status(409).json({
+            error: 'INSTRUCTOR_CONFLICT',
+            details: { conflictId: instructorConflict.id, date: instructorConflict.date.toISOString(), startTime: instructorConflict.startTime, endTime: instructorConflict.endTime },
+          })
+        }
+      }
+
+      if ((startTime || endTime) && existing.studentGroupId) {
+        const familyIds = await getGroupFamilyIds(existing.studentGroupId)
+        const groupConflict = await prisma.scheduleEntry.findFirst({
+          where: {
+            studentGroupId: { in: familyIds },
+            date: { in: futureDates },
+            status: { not: 'CANCELLED' },
+            AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
+            id: { notIn: futureIds },
+          },
+          include: { studentGroup: { select: { name: true } } },
+        })
+        if (groupConflict) {
+          return res.status(409).json({
+            error: 'GROUP_CONFLICT',
+            details: { conflictId: groupConflict.id, date: groupConflict.date.toISOString(), startTime: groupConflict.startTime, endTime: groupConflict.endTime },
+          })
+        }
+      }
+
+      const recalcHours = (startTime || endTime) ? Math.max(1, Math.round((toMins(newEndTime) - toMins(newStartTime)) / 45)) : undefined
+      const bulkData = {
+        ...(roomId       ? { roomId }       : {}),
+        ...(instructorId ? { instructorId } : {}),
+        ...(startTime    ? { startTime }    : {}),
+        ...(endTime      ? { endTime }      : {}),
+        ...(recalcHours !== undefined ? { academicHours: recalcHours } : {}),
+      }
+
+      await prisma.scheduleTemplate.update({
+        where: { id: existing.templateId },
+        data: bulkData,
+      })
+      await prisma.scheduleEntry.updateMany({
+        where: { id: { in: futureIds } },
+        data: bulkData,
+      })
+
+      const data = await prisma.scheduleEntry.findUnique({ where: { id: req.params.id }, include: entryInclude })
+      return res.json({ data, message: `Zaktualizowano ${futureIds.length} terminów` })
+    }
+
+    // ─── Scope ONE (domyślne): zmień tylko ten wpis ───────────────────────────
     if (roomId || instructorId || date || startTime || endTime) {
       const conflict = await validateEntryConflicts({
         date: date ? new Date(date) : existing.date,
@@ -146,7 +247,6 @@ export const update = async (req: Request, res: Response) => {
 
     const newStart = startTime ?? existing.startTime
     const newEnd = endTime ?? existing.endTime
-    const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m ?? 0) }
     const recalcHours = (startTime || endTime) ? Math.max(1, Math.round((toMins(newEnd) - toMins(newStart)) / 45)) : undefined
 
     const data = await prisma.scheduleEntry.update({
@@ -165,7 +265,7 @@ export const update = async (req: Request, res: Response) => {
     res.json({ data, message: 'Wpis zaktualizowany' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -184,7 +284,7 @@ export const remove = async (req: Request, res: Response) => {
     res.json({ message: 'Wpis usunięty' })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -202,7 +302,7 @@ export const removeMany = async (req: Request, res: Response) => {
     })
     res.json({ data: { deleted: count } })
   } catch (error) {
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
 
@@ -285,15 +385,11 @@ export const move = async (req: Request, res: Response) => {
       return d
     })
 
-    // Walidacja kolizji — OR zakresów dziennych (odporne na rozdźwięk południe/północ UTC)
-    const dateOrRanges = futureDates.map(d => ({
-      date: { gte: d, lt: new Date(d.getTime() + 24 * 60 * 60 * 1000) },
-    }))
-
+    // Walidacja kolizji dla wszystkich przyszłych dat jednym zapytaniem per typ
     const roomConflict = await prisma.scheduleEntry.findFirst({
       where: {
         roomId: targetRoomId,
-        OR: dateOrRanges,
+        date: { in: futureDates },
         AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
         id: { notIn: futureIds },
       },
@@ -308,7 +404,7 @@ export const move = async (req: Request, res: Response) => {
     const instructorConflict = await prisma.scheduleEntry.findFirst({
       where: {
         instructorId: targetInstructorId,
-        OR: dateOrRanges,
+        date: { in: futureDates },
         AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
         id: { notIn: futureIds },
       },
@@ -325,7 +421,7 @@ export const move = async (req: Request, res: Response) => {
       const groupConflict = await prisma.scheduleEntry.findFirst({
         where: {
           studentGroupId: { in: familyIds },
-          OR: dateOrRanges,
+          date: { in: futureDates },
           AND: [{ startTime: { lt: newEndTime } }, { endTime: { gt: newStartTime } }],
           id: { notIn: futureIds },
         },
@@ -344,16 +440,12 @@ export const move = async (req: Request, res: Response) => {
     }
     const newDayOfWeek = dayMap[targetDate.getUTCDay()]
 
-    const toMinsMove = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m ?? 0) }
-    const newAcademicHours = Math.max(1, Math.round((toMinsMove(newEndTime) - toMinsMove(newStartTime)) / 45))
-
     await prisma.scheduleTemplate.update({
       where: { id: existing.templateId },
       data: {
         dayOfWeek: newDayOfWeek,
         startTime: newStartTime,
         endTime: newEndTime,
-        academicHours: newAcademicHours,
         ...(newRoomId ? { roomId: newRoomId } : {}),
         ...(newInstructorId ? { instructorId: newInstructorId } : {}),
       },
@@ -367,7 +459,6 @@ export const move = async (req: Request, res: Response) => {
             date: futureDates[i],
             startTime: newStartTime,
             endTime: newEndTime,
-            academicHours: newAcademicHours,
             ...(newRoomId ? { roomId: newRoomId } : {}),
             ...(newInstructorId ? { instructorId: newInstructorId } : {}),
           },
@@ -381,6 +472,6 @@ export const move = async (req: Request, res: Response) => {
     })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
-    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+    res.status(500).json({ error: 'Błąd serwera', details: error })
   }
 }
