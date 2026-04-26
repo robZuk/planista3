@@ -17,7 +17,7 @@ const templateInclude = {
     },
   },
   instructor: { select: { id: true, firstName: true, lastName: true, title: true } },
-  studentGroup: { select: { id: true, name: true } },
+  studentGroup: { select: { id: true, name: true, parentGroupId: true } },
 }
 
 export const getAll = async (req: Request, res: Response) => {
@@ -196,7 +196,7 @@ export const getSummary = async (req: Request, res: Response) => {
       where: { curriculumVersionId },
       include: {
         subject: { select: { name: true } },
-        templateEntries: { select: { classType: true, academicHours: true } },
+        scheduleEntries: { where: { status: { not: 'CANCELLED' } }, select: { classType: true, academicHours: true } },
       },
       orderBy: [{ semester: 'asc' }, { orderInSemester: 'asc' }],
     })
@@ -229,7 +229,7 @@ export const getSummary = async (req: Request, res: Response) => {
       ].filter((ct) => ct.required > 0)
 
       for (const { type, required } of classTypes) {
-        const planned = entry.templateEntries
+        const planned = entry.scheduleEntries
           .filter((se) => se.classType === type)
           .reduce((sum, se) => sum + se.academicHours, 0)
 

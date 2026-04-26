@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, Plus, Pencil, ChevronDown } from 'lucide-react'
 import { curriculumApi } from '@/api/curriculum'
 import { instructorsApi } from '@/api/instructors'
+import { scheduleApi } from '@/api/schedule'
 import { useAuthStore } from '@/store/authStore'
 import { useAcademicYearStore, SEMESTER_TYPE_NUMBERS } from '@/store/academicYearStore'
 import {
@@ -162,6 +163,35 @@ function EditEntryDialog({
   )
 }
 
+// subjectName → classType → { planned, required }
+type SubjectSummary = Map<string, Map<string, { planned: number; required: number }>>
+// semester → SubjectSummary
+type SummaryMap = Map<number, SubjectSummary>
+
+const CLASS_TYPE_KEYS = ['LECTURE', 'EXERCISE', 'LAB', 'PROJECT', 'SEMINAR'] as const
+
+function HoursCell({
+  required,
+  entryName,
+  classType,
+  semesterSummary,
+}: {
+  required: number
+  entryName: string
+  classType: (typeof CLASS_TYPE_KEYS)[number]
+  semesterSummary: SubjectSummary | undefined
+}) {
+  const info = semesterSummary?.get(entryName)?.get(classType)
+  if (!info || required === 0) return <>{required}</>
+  const { planned } = info
+  const colorClass = planned >= required ? 'text-green-500' : 'text-orange-400'
+  return (
+    <span className={`text-xs font-semibold ${colorClass}`}>
+      {planned}/{required}
+    </span>
+  )
+}
+
 // ─── SemesterTable ────────────────────────────────────────────────────────────
 
 function SemesterTable({
@@ -172,6 +202,7 @@ function SemesterTable({
   onEditEntry,
   onDeleteEntry,
   onAddEntry,
+  summaryMap,
 }: {
   semester: number
   entries: CurriculumEntry[]
@@ -180,6 +211,7 @@ function SemesterTable({
   onEditEntry: (entry: CurriculumEntry) => void
   onDeleteEntry: (id: string, subjectName: string) => void
   onAddEntry: (semester: number, nextOrder: number) => void
+  summaryMap: SummaryMap | undefined
 }) {
   return (
     <div className="mb-6">
@@ -212,7 +244,9 @@ function SemesterTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {entries.map((entry, idx) => (
+            {entries.map((entry, idx) => {
+              const semSummary = summaryMap?.get(semester)
+              return (
               <tr key={entry.id} className="hover:bg-muted/50 group">
                 <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                 <td className="px-3 py-2 font-medium">
@@ -226,11 +260,11 @@ function SemesterTable({
                     ? `${entry.instructor.title ?? ''} ${entry.instructor.lastName}`.trim()
                     : '—'}
                 </td>
-                <td className="px-2 py-2 text-center">{entry.hoursLecture}</td>
-                <td className="px-2 py-2 text-center">{entry.hoursExercise}</td>
-                <td className="px-2 py-2 text-center">{entry.hoursLab}</td>
-                <td className="px-2 py-2 text-center">{entry.hoursProject}</td>
-                <td className="px-2 py-2 text-center">{entry.hoursSeminar}</td>
+                <td className="px-2 py-2 text-center"><HoursCell required={entry.hoursLecture} entryName={entry.subject.name} classType="LECTURE" semesterSummary={semSummary} /></td>
+                <td className="px-2 py-2 text-center"><HoursCell required={entry.hoursExercise} entryName={entry.subject.name} classType="EXERCISE" semesterSummary={semSummary} /></td>
+                <td className="px-2 py-2 text-center"><HoursCell required={entry.hoursLab} entryName={entry.subject.name} classType="LAB" semesterSummary={semSummary} /></td>
+                <td className="px-2 py-2 text-center"><HoursCell required={entry.hoursProject} entryName={entry.subject.name} classType="PROJECT" semesterSummary={semSummary} /></td>
+                <td className="px-2 py-2 text-center"><HoursCell required={entry.hoursSeminar} entryName={entry.subject.name} classType="SEMINAR" semesterSummary={semSummary} /></td>
                 <td className="px-2 py-2 text-center font-medium">{entry.totalHours}</td>
                 <td className="px-2 py-2 text-center">{entry.ects}</td>
                 <td className="px-2 py-2 text-center text-xs text-muted-foreground hidden lg:table-cell">
@@ -259,7 +293,7 @@ function SemesterTable({
                   </td>
                 )}
               </tr>
-            ))}
+            )})}
             {entries.length === 0 && (
               <tr>
                 <td colSpan={canEdit ? 12 : 11} className="text-center py-4 text-muted-foreground text-sm">
@@ -683,6 +717,22 @@ function VersionSection({
     enabled: isExpanded,
   })
 
+  const { data: summaryData } = useQuery({
+    queryKey: ['curriculum-summary', version.id],
+    queryFn: () => scheduleApi.getSummary(version.id),
+    enabled: isExpanded,
+  })
+
+  const summaryMap: SummaryMap = new Map()
+  for (const sem of summaryData?.data.data.semesters ?? []) {
+    const subjectMap: SubjectSummary = new Map()
+    for (const s of sem.subjects) {
+      if (!subjectMap.has(s.subjectName)) subjectMap.set(s.subjectName, new Map())
+      subjectMap.get(s.subjectName)!.set(s.classType, { planned: s.planned, required: s.required })
+    }
+    summaryMap.set(sem.semester, subjectMap)
+  }
+
   const invalidateEntries = () =>
     void queryClient.invalidateQueries({ queryKey: ['curriculum-entries', version.id] })
 
@@ -840,6 +890,7 @@ function VersionSection({
                 if (confirm(`Usunąć „${name}" z siatki?`)) deleteEntryMutation.mutate(id)
               }}
               onAddEntry={(semester, nextOrder) => setAddEntryCtx({ semester, nextOrder })}
+              summaryMap={summaryMap}
             />
           ))}
         </div>

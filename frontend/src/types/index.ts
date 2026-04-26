@@ -95,7 +95,7 @@ export interface ScheduleTemplate {
     building: { id: string; name: string }
   }
   instructor: { id: string; firstName: string; lastName: string; title?: string | null }
-  studentGroup?: { id: string; name: string } | null
+  studentGroup?: { id: string; name: string; parentGroupId: string | null } | null
   curriculumEntry: {
     id: string
     subject: { id: string; name: string }

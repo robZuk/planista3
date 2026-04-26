@@ -144,6 +144,11 @@ export const update = async (req: Request, res: Response) => {
       }
     }
 
+    const newStart = startTime ?? existing.startTime
+    const newEnd = endTime ?? existing.endTime
+    const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m ?? 0) }
+    const recalcHours = (startTime || endTime) ? Math.max(1, Math.round((toMins(newEnd) - toMins(newStart)) / 45)) : undefined
+
     const data = await prisma.scheduleEntry.update({
       where: { id: req.params.id },
       data: {
@@ -153,6 +158,7 @@ export const update = async (req: Request, res: Response) => {
         ...(startTime ? { startTime } : {}),
         ...(endTime ? { endTime } : {}),
         ...(status ? { status } : {}),
+        ...(recalcHours !== undefined ? { academicHours: recalcHours } : {}),
       },
       include: entryInclude,
     })

@@ -2495,13 +2495,33 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
 
   const activeTemplate = activeId ? templates.find(t => t.id === activeId) : null
 
+  // Zestaw ID całej rodziny grupy (przodkowie + potomkowie) na podstawie załadowanych szablonów
+  const activeGroupFamilyIds = useMemo((): Set<string> => {
+    const gid = activeTemplate?.studentGroup?.id
+    if (!gid) return new Set()
+    const allGroups = allTemplates.flatMap(t => t.studentGroup ? [t.studentGroup] : [])
+    const idToParent = new Map(allGroups.map(g => [g.id, g.parentGroupId]))
+    const family = new Set<string>([gid])
+    let cur: string | null | undefined = idToParent.get(gid)
+    while (cur) { family.add(cur); cur = idToParent.get(cur) }
+    const queue = [gid]
+    while (queue.length > 0) {
+      const id = queue.shift()!
+      for (const [cid, pid] of idToParent) {
+        if (pid === id && !family.has(cid)) { family.add(cid); queue.push(cid) }
+      }
+    }
+    return family
+  }, [activeTemplate, allTemplates])
+
   const dragInfo = useMemo(() => {
     if (!activeTemplate) return null
     const durationMins = timeToMins(activeTemplate.endTime) - timeToMins(activeTemplate.startTime)
     const blockMins = durationMins
     const result: Record<string, Array<{ top: number; height: number }>> = {}
+    const groupConflict = (t: ScheduleTemplate) =>
+      t.studentGroup?.id != null && activeGroupFamilyIds.has(t.studentGroup.id)
     for (const day of days) {
-      // Dla PART_TIME pomiń całkowicie dni poza oknem
       if (activeTemplate.studyMode === 'PART_TIME') {
         const windowFrom = partTimeWindowFrom(day.key)
         if (windowFrom === null) { result[day.key] = []; continue }
@@ -2511,7 +2531,7 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
             weekTypesConflict(activeTemplate.weekType, t.weekType) && (
               t.room.id === activeTemplate.room.id ||
               t.instructor.id === activeTemplate.instructor.id ||
-              (t.studentGroup?.id && t.studentGroup.id === activeTemplate.studentGroup?.id)
+              groupConflict(t)
             )
           )
           .map(t => ({ start: timeToMins(t.startTime), end: timeToMins(t.endTime) }))
@@ -2524,14 +2544,14 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
           weekTypesConflict(activeTemplate.weekType, t.weekType) && (
             t.room.id === activeTemplate.room.id ||
             t.instructor.id === activeTemplate.instructor.id ||
-            (t.studentGroup?.id && t.studentGroup.id === activeTemplate.studentGroup?.id)
+            groupConflict(t)
           )
         )
         .map(t => ({ start: timeToMins(t.startTime), end: timeToMins(t.endTime) }))
       result[day.key] = getValidSlots(occupied, blockMins, durationMins)
     }
     return result
-  }, [activeTemplate, allByDay, days])
+  }, [activeTemplate, allByDay, days, activeGroupFamilyIds])
 
   const hoverGhostTemplate = useMemo(() => {
     if (!activeTemplate || !overSlot) return null
@@ -2547,7 +2567,7 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
       weekTypesConflict(activeTemplate.weekType, t.weekType) && (
         t.room.id === activeTemplate.room.id ||
         t.instructor.id === activeTemplate.instructor.id ||
-        (t.studentGroup?.id && t.studentGroup.id === activeTemplate.studentGroup?.id)
+        (t.studentGroup?.id != null && activeGroupFamilyIds.has(t.studentGroup.id))
       )
     )
     const conflicts = others.filter(t => {
@@ -2574,10 +2594,8 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
       qc.invalidateQueries({ queryKey: ['templates'] })
       qc.invalidateQueries({ queryKey: ['templates-all'] })
     },
-    onError: (err: unknown) => {
+    onError: () => {
       qc.invalidateQueries({ queryKey: ['templates-all'] })
-      const data = (err as { response?: { data?: { error?: string; details?: Record<string, unknown> } } })?.response?.data
-      toast.error(data?.error ? formatApiError(data.error, data.details) : 'Nie udało się przenieść zajęć')
     },
   })
 
@@ -2906,7 +2924,7 @@ function TemplateTab({ academicYear }: { academicYear: string }) {
                                 const reasons = [
                                   t.room.id === activeTemplate!.room.id && `sala ${t.room.number}`,
                                   t.instructor.id === activeTemplate!.instructor.id && `${t.instructor.title ? t.instructor.title + ' ' : ''}${t.instructor.lastName}`,
-                                  t.studentGroup?.id && t.studentGroup.id === activeTemplate!.studentGroup?.id && `gr. ${t.studentGroup.name}`,
+                                  t.studentGroup?.id && activeGroupFamilyIds.has(t.studentGroup.id) && `gr. ${t.studentGroup.name}`,
                                 ].filter(Boolean).join(', ')
                                 return (
                                   <div key={i} className="mb-1 last:mb-0 border-l-2 border-red-400 pl-1.5">
@@ -3533,7 +3551,7 @@ function CalendarTab({ academicYear }: { academicYear: string }) {
                 }
               }}
             >
-              {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść wszystkie terminy'}
+              {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
             </Button>
           </div>
         </div>
