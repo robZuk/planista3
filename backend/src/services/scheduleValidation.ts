@@ -37,6 +37,7 @@ export type ValidationError =
   | { code: 'GROUP_CONFLICT'; details: { conflictId: string; dayOfWeek?: string; date?: string; startTime: string; endTime: string; groupName?: string } }
   | { code: 'WRONG_ROOM_TYPE'; details: { roomType: RoomType; classType: ClassType; allowed: RoomType[] } }
   | { code: 'TIME_WINDOW_VIOLATION'; details: { dayOfWeek: string; startTime: string; studyMode: string; allowed: string } }
+  | { code: 'INSUFFICIENT_ROOM_CAPACITY'; details: { roomCapacity: number; groupSize: number } }
 
 export type TemplateDto = {
   curriculumEntryId: string
@@ -93,12 +94,18 @@ export async function validateTemplateEntry(dto: TemplateDto): Promise<Validatio
     if ((day === 6 || day === 0) && (startMins < 7 * 60 || endMins > 20 * 60)) return violation('Sobota/Niedziela 07:00–20:00')
   }
 
-  // 1. Sprawdź typ sali
+  // 1. Sprawdź typ sali i pojemność
   const room = await prisma.room.findUnique({ where: { id: dto.roomId } })
   if (room) {
     const allowed = roomTypeMap[dto.classType]
     if (!allowed.includes(room.type)) {
       return { code: 'WRONG_ROOM_TYPE', details: { roomType: room.type, classType: dto.classType, allowed } }
+    }
+    if (dto.studentGroupId) {
+      const group = await prisma.studentGroup.findUnique({ where: { id: dto.studentGroupId }, select: { size: true } })
+      if (group && room.capacity < group.size) {
+        return { code: 'INSUFFICIENT_ROOM_CAPACITY', details: { roomCapacity: room.capacity, groupSize: group.size } }
+      }
     }
   }
 
@@ -295,6 +302,15 @@ export async function validateEntryConflicts(dto: EntryConflictDto): Promise<Val
           groupName: groupConflict.studentGroup?.name ?? undefined,
         },
       }
+    }
+
+    // Sprawdź pojemność sali
+    const [room, group] = await Promise.all([
+      prisma.room.findUnique({ where: { id: dto.roomId }, select: { capacity: true } }),
+      prisma.studentGroup.findUnique({ where: { id: dto.studentGroupId }, select: { size: true } }),
+    ])
+    if (room && group && room.capacity < group.size) {
+      return { code: 'INSUFFICIENT_ROOM_CAPACITY', details: { roomCapacity: room.capacity, groupSize: group.size } }
     }
   }
 

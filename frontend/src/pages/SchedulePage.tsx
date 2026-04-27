@@ -115,6 +115,10 @@ function formatApiError(code: string, details?: Record<string, unknown>): string
       const group = d?.groupName ? `grupa ${d.groupName}` : 'grupa'
       return `Konflikt grupy — ${group} jest zajęta: ${when} ${d?.startTime ?? ''}–${d?.endTime ?? ''}`
     }
+    case 'INSUFFICIENT_ROOM_CAPACITY': {
+      const d = details as { roomCapacity?: number; groupSize?: number } | undefined
+      return `Za mała sala — pojemność sali (${d?.roomCapacity ?? '?'} miejsc) jest mniejsza niż liczebność grupy (${d?.groupSize ?? '?'} os.)`
+    }
     default: {
       const pl: Record<string, string> = {
         HOURS_EXCEEDED: 'Przekroczono limit godzin',
@@ -252,7 +256,7 @@ function DraggableTemplateBlock({
         </p>
         <p className="truncate opacity-60">{template.startTime}–{template.endTime}</p>
         <p className="truncate opacity-60">
-          {template.instructor.title ? `${template.instructor.title} ` : ''}{template.instructor.lastName}
+          {template.instructor.title ? `${template.instructor.title} ` : ''}{template.instructor.firstName[0]}. {template.instructor.lastName}
         </p>
         {template.studentGroup && (
           <p className="truncate opacity-60">{template.studentGroup.name}</p>
@@ -309,7 +313,7 @@ function DraggableEntryBlock({
         </p>
         <p className="truncate opacity-60">{entry.startTime}–{entry.endTime}</p>
         <p className="truncate opacity-60">
-          {entry.instructor.title ? `${entry.instructor.title} ` : ''}{entry.instructor.lastName}
+          {entry.instructor.title ? `${entry.instructor.title} ` : ''}{entry.instructor.firstName[0]}. {entry.instructor.lastName}
         </p>
         {entry.studentGroup && (
           <p className="truncate opacity-60">{entry.studentGroup.name}</p>

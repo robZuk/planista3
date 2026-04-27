@@ -166,6 +166,16 @@ export const update = async (req: Request, res: Response) => {
             details: { conflictId: roomConflict.id, date: roomConflict.date.toISOString(), startTime: roomConflict.startTime, endTime: roomConflict.endTime },
           })
         }
+
+        if (existing.studentGroupId) {
+          const [room, group] = await Promise.all([
+            prisma.room.findUnique({ where: { id: newRoomId }, select: { capacity: true } }),
+            prisma.studentGroup.findUnique({ where: { id: existing.studentGroupId }, select: { size: true } }),
+          ])
+          if (room && group && room.capacity < group.size) {
+            return res.status(409).json({ error: 'INSUFFICIENT_ROOM_CAPACITY', details: { roomCapacity: room.capacity, groupSize: group.size } })
+          }
+        }
       }
 
       if (instructorId || startTime || endTime) {
@@ -216,10 +226,6 @@ export const update = async (req: Request, res: Response) => {
         ...(recalcHours !== undefined ? { academicHours: recalcHours } : {}),
       }
 
-      await prisma.scheduleTemplate.update({
-        where: { id: existing.templateId },
-        data: bulkData,
-      })
       await prisma.scheduleEntry.updateMany({
         where: { id: { in: futureIds } },
         data: bulkData,
@@ -401,6 +407,16 @@ export const move = async (req: Request, res: Response) => {
       })
     }
 
+    if (existing.studentGroupId) {
+      const [room, group] = await Promise.all([
+        prisma.room.findUnique({ where: { id: targetRoomId }, select: { capacity: true } }),
+        prisma.studentGroup.findUnique({ where: { id: existing.studentGroupId }, select: { size: true } }),
+      ])
+      if (room && group && room.capacity < group.size) {
+        return res.status(409).json({ error: 'INSUFFICIENT_ROOM_CAPACITY', details: { roomCapacity: room.capacity, groupSize: group.size } })
+      }
+    }
+
     const instructorConflict = await prisma.scheduleEntry.findFirst({
       where: {
         instructorId: targetInstructorId,
@@ -434,23 +450,6 @@ export const move = async (req: Request, res: Response) => {
       }
     }
 
-    const dayMap: Record<number, 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY'> = {
-      1: 'MONDAY', 2: 'TUESDAY', 3: 'WEDNESDAY', 4: 'THURSDAY',
-      5: 'FRIDAY', 6: 'SATURDAY', 0: 'SUNDAY',
-    }
-    const newDayOfWeek = dayMap[targetDate.getUTCDay()]
-
-    await prisma.scheduleTemplate.update({
-      where: { id: existing.templateId },
-      data: {
-        dayOfWeek: newDayOfWeek,
-        startTime: newStartTime,
-        endTime: newEndTime,
-        ...(newRoomId ? { roomId: newRoomId } : {}),
-        ...(newInstructorId ? { instructorId: newInstructorId } : {}),
-      },
-    })
-
     const updated = await Promise.all(
       futureEntries.map((entry, i) =>
         prisma.scheduleEntry.update({
@@ -468,7 +467,7 @@ export const move = async (req: Request, res: Response) => {
 
     res.json({
       data: { updatedCount: updated.length },
-      message: `Zaktualizowano szablon i ${updated.length} przyszłych wpisów`,
+      message: `Zaktualizowano ${updated.length} przyszłych wpisów`,
     })
   } catch (error) {
     if (isNotFoundError(error)) return res.status(404).json({ error: 'Wpis nie znaleziony' })
