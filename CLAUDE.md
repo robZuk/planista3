@@ -2,53 +2,34 @@
 
 ## Tech Stack
 
-| Warstwa     | Technologia                                        |
-|-------------|----------------------------------------------------|
-| Backend     | Node.js + Express + TypeScript, port 4000          |
-| Baza danych | PostgreSQL (Docker), ORM: Prisma                   |
-| Auth        | JWT access (24h) + refresh (7d), bcryptjs          |
-| Frontend    | React + TypeScript + Vite, port 5173               |
-| UI          | shadcn/ui + Tailwind CSS                           |
-| State       | TanStack Query (server), Zustand (auth + globalCtx)|
-
-## Stan projektu — wszystko zaimplementowane
-
-- [x] Schemat Prisma + migracje
-- [x] Seed — dane testowe (wydziały, kierunki, specjalności, siatki godzin, budynki, sale, prowadzący, admin)
-- [x] REST API — pełne CRUD dla wszystkich zasobów
-- [x] Auth JWT (`/api/auth`: login, logout, refresh, me, register)
-- [x] Middleware `authenticate` + `authorize(role)` na wszystkich chronionych routach
-- [x] Frontend — wszystkie strony (Login, Dashboard, Curriculum, Schedule, Groups, Buildings, Instructors, Faculties)
-- [x] Globalny kontekst roku/semestru (Zustand, persisted)
+| Warstwa     | Technologia                                         |
+|-------------|-----------------------------------------------------|
+| Backend     | Node.js + Express + TypeScript, port 4000           |
+| Baza danych | PostgreSQL (Docker), ORM: Prisma                    |
+| Auth        | JWT access (24h) + refresh (7d), bcryptjs           |
+| Frontend    | React + TypeScript + Vite, port 5173                |
+| UI          | shadcn/ui + Tailwind CSS                            |
+| State       | TanStack Query (server), Zustand (auth + globalCtx) |
 
 ## Struktura projektu
 
 ```
 planista3/
 ├── backend/
-│   ├── prisma/
-│   │   ├── schema.prisma        ← modele: User, Faculty, FieldOfStudy, Specialization,
-│   │   │                           CurriculumVersion, CurriculumEntry, Subject,
-│   │   │                           Building, Room, Instructor, StudentGroup, ScheduleEntry
-│   │   └── seed.ts
+│   ├── prisma/schema.prisma   ← modele DB
 │   └── src/
-│       ├── index.ts             ← Express entry point
-│       ├── lib/prisma.ts        ← singleton PrismaClient
+│       ├── index.ts
+│       ├── lib/prisma.ts      ← singleton PrismaClient (jedyny)
 │       ├── middleware/authenticate.ts
-│       ├── routes/              ← auth, faculties, fields-of-study, specializations,
-│       │                           buildings, instructors, curriculum, subjects,
-│       │                           groups, schedule
+│       ├── routes/
 │       └── controllers/
 └── frontend/src/
-    ├── api/                     ← auth, curriculum, groups, schedule, buildings,
-    │                               instructors, faculties
-    ├── components/layout/       ← AppShell, Sidebar, ProtectedRoute
-    ├── pages/                   ← LoginPage, DashboardPage, CurriculumPage,
-    │                               SchedulePage, GroupsPage, BuildingsPage,
-    │                               InstructorsPage, FacultiesPage
+    ├── api/
+    ├── components/layout/     ← AppShell, Sidebar, ProtectedRoute
+    ├── pages/
     ├── store/
-    │   ├── authStore.ts         ← user, accessToken, refreshToken (persisted)
-    │   └── academicYearStore.ts ← academicYear, semesterType WINTER|SUMMER (persisted)
+    │   ├── authStore.ts       ← user, accessToken, refreshToken (persisted)
+    │   └── academicYearStore.ts ← academicYear, semesterType (persisted)
     └── types/index.ts
 ```
 
@@ -74,14 +55,9 @@ planista3/
 
 ## Globalny kontekst roku/semestru
 
-```ts
-// academicYearStore.ts
-academicYear: string          // np. "2024/2025"
-semesterType: 'WINTER'|'SUMMER'
-SEMESTER_TYPE_NUMBERS = { WINTER: [1,3,5,7], SUMMER: [2,4,6] }
-```
-
-Używany w: SchedulePage, GroupsPage, CurriculumPage. Select w Sidebar (`"2024/2025|WINTER"`).
+`academicYear: string` (np. `"2024/2025"`) + `semesterType: 'WINTER'|'SUMMER'`  
+`SEMESTER_TYPE_NUMBERS = { WINTER: [1,3,5,7], SUMMER: [2,4,6] }`  
+Select w Sidebar (`"2024/2025|WINTER"`). Używany w: SchedulePage, GroupsPage, CurriculumPage.
 
 ## Grupy — nazewnictwo
 
@@ -95,180 +71,63 @@ Prefix = `specialization.shortName` jeśli podano spec, inaczej `fieldOfStudy.sh
 {PREFIX}-{rok}-S-A/B/...  → seminarium
 ```
 
-Unique constraint: `[name, semester, academicYear]`.
+Unique constraint: `[name, semester, academicYear]`.  
+Hierarchia: `StudentGroup` ma `parentGroupId` (relacja `"GroupHierarchy"`). Walidacja konfliktów sprawdza całą rodzinę (przodkowie + potomkowie).
 
 ## Dane testowe (seed)
 
 - Admin: `admin@umg.edu.pl` / `Admin1234!`
-- Wydział Mechaniczny z kierunkami EDST (specjalności DUT, ZEEW) i innymi
-- Siatki godzin dla DUT i ZEEW, rok 2024/2025
+- Wydział Mechaniczny, kierunki EDST (spec. DUT, ZEEW), rok 2024/2025
 - Budynki A (wykładowe/ćwiczeniowe), B (laboratoria), Centrum Sportu
 - 12 prowadzących WM + 2 WF + 2 lektorzy
 
-## Plan zajęć — architektura (następny cel)
+## Architektura planu zajęć
 
-### Koncepcja: wzorzec + konkretne tygodnie
+### Koncepcja
 
 ```
-ScheduleTemplate  →  wzorzec tygodnia (dayOfWeek, time, room, instructor, group)
+ScheduleTemplate  →  wzorzec tygodnia (dayOfWeek, weekType, time, room, instructor, group)
         ↓  generator
-ScheduleEntry     →  konkretny termin (date, status)
+ScheduleEntry     →  konkretny termin (date, status: SCHEDULED|CANCELLED|MAKEUP)
 ```
 
-Admin układa wzorzec jednego tygodnia, system generuje wpisy na wszystkie tygodnie semestru.
+`weekType`: `EVERY | EVEN | ODD`
 
-### Modele (do dodania do schema.prisma)
-
-```prisma
-model SemesterCalendar {
-  id             String      @id @default(uuid())
-  academicYear   String      // "2024/2025"
-  semesterType   SemesterType  // WINTER | SUMMER
-  studyMode      StudyMode   // FULL_TIME | PART_TIME
-  startDate      DateTime
-  endDate        DateTime
-  teachingWeeks  Int
-  createdAt      DateTime    @default(now())
-
-  @@unique([academicYear, semesterType, studyMode])
-}
-
-model PublicHoliday {
-  id    String   @id @default(uuid())
-  date  DateTime @unique
-  name  String
-}
-
-model ScheduleTemplate {
-  id           String      @id @default(uuid())
-  dayOfWeek    DayOfWeek
-  startTime    String      // "08:00"
-  endTime      String      // "09:30"
-  academicHours Int
-  classType    ClassType
-  weekType     WeekType    @default(EVERY)  // EVERY | EVEN | ODD
-
-  curriculumEntryId  String
-  curriculumEntry    CurriculumEntry @relation(...)
-  roomId             String
-  room               Room            @relation(...)
-  instructorId       String
-  instructor         Instructor      @relation(...)
-  studentGroupId     String
-  studentGroup       StudentGroup    @relation(...)
-
-  academicYear  String
-  semesterType  SemesterType
-  studyMode     StudyMode
-
-  entries  ScheduleEntry[]
-  createdAt DateTime @default(now())
-}
-
-model ScheduleEntry {
-  id          String         @id @default(uuid())
-  date        DateTime       // konkretna data, np. 2025-10-07
-  startTime   String
-  endTime     String
-  status      EntryStatus    @default(SCHEDULED)
-
-  templateId     String?
-  template       ScheduleTemplate? @relation(...)
-
-  // może być nadpisane względem szablonu (zmiana sali/prowadzącego)
-  roomId         String
-  room           Room       @relation(...)
-  instructorId   String
-  instructor     Instructor @relation(...)
-
-  curriculumEntryId String
-  studentGroupId    String
-
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-}
-
-enum EntryStatus {
-  SCHEDULED   // zaplanowane
-  CANCELLED   // odwołane
-  MAKEUP      // odrobienie (dodane ręcznie, bez szablonu)
-}
-
-enum SemesterType {
-  WINTER
-  SUMMER
-}
-```
-
-### Tryby studiów — dostępne okna czasowe
+### Tryby studiów — okna czasowe
 
 | Tryb | Dostępne dni | Godziny |
 |---|---|---|
-| FULL_TIME (stacjonarne) | Poniedziałek–Piątek | 07:00–20:00 |
-| PART_TIME (niestacjonarne) | Piątek | 15:00–20:00 |
-| PART_TIME (niestacjonarne) | Sobota–Niedziela | 07:00–20:00 |
+| FULL_TIME | Poniedziałek–Piątek | 07:00–20:00 |
+| PART_TIME | Piątek | 15:00–20:00 |
+| PART_TIME | Sobota–Niedziela | 07:00–20:00 |
 
-Generator pomija sloty poza oknem czasowym danego trybu oraz dni będące świętami (`PublicHoliday`).
+Generator pomija święta (`PublicHoliday`) i sloty poza oknem trybu.
 
-### Endpointy (do zaimplementowania)
+### Walidacja konfliktów
+
+Przy każdym POST/PUT `ScheduleTemplate` i `ScheduleEntry`:
+- **Sala zajęta** — ta sama sala, ta sama data/dzień, nakładające się godziny
+- **Prowadzący zajęty** — jw.
+- **Grupa zajęta** — jw., sprawdza całą rodzinę grup (`getGroupFamilyIds`)
+- Odpowiedź: `409 Conflict` z detalami
+
+### Endpointy
 
 | Metoda | Ścieżka | Opis |
 |---|---|---|
-| GET/POST/PUT/DELETE | `/api/schedule/templates` | CRUD wzorca tygodnia |
-| POST | `/api/schedule/generate` | generuj wpisy na semestr z wzorca |
-| GET | `/api/schedule/entries` | lista wpisów, ?from=&to=&groupId=&instructorId= |
-| PUT | `/api/schedule/entries/:id` | edycja wpisu (sala, prowadzący, przeniesienie) |
-| DELETE | `/api/schedule/entries/:id` | odwołaj zajęcia (status→CANCELLED) |
-| GET/POST/DELETE | `/api/schedule/holidays` | zarządzanie dniami wolnymi |
+| GET/POST/PUT/DELETE | `/api/schedule/templates` | CRUD wzorca |
+| POST | `/api/schedule/generate` | generuj wpisy na semestr |
+| GET | `/api/schedule/entries` | `?from=&to=&groupId=&instructorId=` |
+| PUT/DELETE | `/api/schedule/entries/:id` | edycja / odwołanie |
+| GET/POST/DELETE | `/api/schedule/holidays` | dni wolne |
 | GET/POST/PUT/DELETE | `/api/schedule/calendars` | SemesterCalendar |
 
-### Generator — logika
+### UI — drag & drop
 
-```
-POST /api/schedule/generate
-{
-  templateId: string,
-  calendarId: string   // SemesterCalendar z datami semestru
-}
-
-Algorytm:
-1. Pobierz wzorzec (dayOfWeek, weekType, startTime...)
-2. Pobierz kalendarz (startDate, endDate, studyMode)
-3. Iteruj przez wszystkie tygodnie semestru:
-   a. Wyznacz konkretną datę dla dayOfWeek w danym tygodniu
-   b. Pomiń jeśli data to PublicHoliday
-   c. Pomiń jeśli data poza oknem czasowym trybu studiów
-   d. Pomiń jeśli weekType=EVEN i tydzień nieparzysty (i odwrotnie)
-   e. Sprawdź konflikty (sala, prowadzący, grupa)
-   f. Zapisz ScheduleEntry
-4. Zwróć listę utworzonych + ewentualne ostrzeżenia
-```
-
-### Walidacja konfliktów (przy każdej zmianie)
-
-Sprawdzaj przy POST/PUT ScheduleEntry i ScheduleTemplate:
-- **Sala zajęta** — inny wpis w tej samej sali, tej samej dacie, nakładające się godziny
-- **Prowadzący zajęty** — jw. dla instructorId
-- **Grupa zajęta** — jw. dla studentGroupId
-- Odpowiedź: `409 Conflict` z detalami (co koliduje, kiedy, z czym)
-
-### Drag & drop — UI
-
-- Wolne sloty → podświetl **zielono**
-- Zajęte / poza oknem trybu → podświetl **czerwono**
-- Święta (`PublicHoliday`) → cała kolumna dnia na **czerwono** z nazwą święta
-- Po upuszczeniu na nowy slot → walidacja na backendzie
-- Dialog: **"Przenieść tylko te zajęcia (data X) czy cały semestr?"**
-  - Tylko ten termin → aktualizuj jeden `ScheduleEntry` (date, room, instructor)
-  - Cały semestr → aktualizuj `ScheduleTemplate` (dayOfWeek, startTime) + regeneruj wszystkie przyszłe `ScheduleEntry`
-
-### Edycja zajęć (bez drag & drop)
-
-Formularz edycji `ScheduleEntry`:
-- Zmiana prowadzącego (walidacja: czy prowadzący wolny w tym terminie)
-- Zmiana sali (walidacja: czy sala wolna, odpowiedni typ)
-- Przeniesienie: podaj nową datę + godzinę (walidacja j.w.)
-- Każda zmiana → natychmiastowa walidacja przed zapisem
+- Wolne sloty → zielono; zajęte / poza oknem → czerwono; święta → cała kolumna czerwona
+- Po upuszczeniu: dialog **"Przenieść tylko ten termin czy cały semestr?"**
+  - Jeden termin → aktualizuj `ScheduleEntry`
+  - Cały semestr → aktualizuj `ScheduleTemplate` + regeneruj przyszłe wpisy
 
 ## Czego NIE robić
 
