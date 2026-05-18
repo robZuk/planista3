@@ -539,21 +539,34 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
             </div>
           )}
 
-          <div className="flex flex-col justify-end gap-1 ml-auto">
-            <label className="text-[11px] text-transparent select-none">_</label>
-            <Button
-              variant="destructive"
-              size="sm"
-              className="h-8 text-xs"
-              disabled={deleteManyMutation.isPending}
-              onClick={() => {
-                if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
-                  deleteManyMutation.mutate()
-                }
-              }}
-            >
-              {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
-            </Button>
+          <div className="flex items-end gap-2 ml-auto">
+            <div className="flex flex-col justify-end gap-1">
+              <label className="text-[11px] text-transparent select-none">_</label>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setShowCalendarDialog(true)}
+              >
+                Kalendarze semestrów
+              </Button>
+            </div>
+            <div className="flex flex-col justify-end gap-1">
+              <label className="text-[11px] text-transparent select-none">_</label>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={deleteManyMutation.isPending}
+                onClick={() => {
+                  if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
+                    deleteManyMutation.mutate()
+                  }
+                }}
+              >
+                {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
