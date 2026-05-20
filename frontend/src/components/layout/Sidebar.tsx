@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, BookOpen, CalendarDays, Users, GraduationCap, Building2, School, LogOut, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, BookOpen, CalendarDays, Users, GraduationCap, Building2, School, LogOut, Sun, Moon, CalendarOff } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useAcademicYearStore } from '@/store/academicYearStore'
 import { useTheme } from '@/hooks/useTheme'
@@ -57,6 +57,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Wydziały',
     path: '/faculties',
     icon: <School size={18} />,
+    roles: ['ADMIN', 'DEAN_OFFICE'],
+  },
+  {
+    label: 'Dni wolne',
+    path: '/holidays',
+    icon: <CalendarOff size={18} />,
     roles: ['ADMIN', 'DEAN_OFFICE'],
   },
 ]

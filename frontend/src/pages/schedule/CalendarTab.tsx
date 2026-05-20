@@ -31,6 +31,7 @@ import { EntryDetailPanel } from './components/EntryDetailPanel'
 import { AddEntryDialog } from './dialogs/AddEntryDialog'
 import { MoveEntryDialog } from './dialogs/MoveEntryDialog'
 import { CalendarDialog } from './dialogs/CalendarDialog'
+import { GenerateSemesterDialog } from './dialogs/GenerateSemesterDialog'
 
 export function CalendarTab({ academicYear }: { academicYear: string }) {
   const { semesterType } = useAcademicYearStore()
@@ -68,6 +69,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overSlot, setOverSlot] = useState<string | null>(null)
   const [showCalendarDialog, setShowCalendarDialog] = useState(false)
+  const [showGenerateSemester, setShowGenerateSemester] = useState(false)
   const [addSlot, setAddSlot] = useState<{ date: string; startTime: string } | null>(null)
 
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart])
@@ -373,10 +375,10 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
     <div>
       {/* Sekcja 1: Filtry kaskadowe */}
       <div className="p-3 mb-2 bg-card rounded-lg border border-border">
-        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Zakres widoku</p>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Zakres widoku i generowania terminów</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Wydział</label>
+            <label className="text-xs">Wydział</label>
             <Select value={facultyId || '__all__'} onValueChange={v => {
               const val = v === '__all__' ? '' : v
               setFacultyId(val); setStudyMode(''); setFieldOfStudyId(''); setSpecializationId(''); setSemester(''); setFilterGroupIds(null)
@@ -390,7 +392,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Tryb</label>
+            <label className="text-xs">Tryb</label>
             <Select value={studyMode || '__all__'} onValueChange={v => {
               setStudyMode(v === '__all__' ? '' : v as StudyMode)
               setFieldOfStudyId(''); setSpecializationId(''); setSemester(''); setFilterGroupIds(null)
@@ -405,7 +407,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Kierunek</label>
+            <label className="text-xs">Kierunek</label>
             <Select value={fieldOfStudyId || '__all__'} onValueChange={v => {
               const val = v === '__all__' ? '' : v
               setFieldOfStudyId(val); setSpecializationId(''); setSemester(''); setFilterGroupIds(null)
@@ -419,7 +421,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Specjalność</label>
+            <label className="text-xs">Specjalność</label>
             <Select value={specializationId || '__all__'} onValueChange={v => {
               const val = v === '__all__' ? '' : v
               setSpecializationId(val); setFilterGroupIds(null)
@@ -433,7 +435,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Semestr</label>
+            <label className="text-xs">Semestr</label>
             <Select value={semester || '__all__'} onValueChange={v => setSemester(v === '__all__' ? '' : v)} disabled={!specializationId}>
               <SelectTrigger className="w-full h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -446,7 +448,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">
+            <label className="text-xs">
               Grupy {filterGroupIds !== null && <span className="text-primary font-semibold">({filterGroupIds.size})</span>}
             </label>
             <GroupCheckboxPicker
@@ -469,14 +471,31 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
             </Button>
           </div>
         )}
+
+        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border">
+          <Button size="sm" onClick={() => setShowGenerateSemester(true)} disabled={!facultyId}>
+            Generuj terminy
+          </Button>
+          <Button
+            variant="destructive" size="sm"
+            disabled={deleteManyMutation.isPending}
+            onClick={() => {
+              if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
+                deleteManyMutation.mutate()
+              }
+            }}
+          >
+            {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
+          </Button>
+        </div>
       </div>
 
       {/* Sekcja 2: Filtry widoku + nawigacja tygodnia */}
       <div className="p-3 mb-3 bg-card rounded-lg border border-border">
-        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Widok</p>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Widok</p>
         <div className="flex flex-wrap gap-2 items-end">
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Typ zajęć</label>
+            <label className="text-xs">Typ zajęć</label>
             <Select value={filterClassType || '__all__'} onValueChange={v => setFilterClassType(v === '__all__' ? '' : v)}>
               <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -491,7 +510,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Prowadzący</label>
+            <label className="text-xs">Prowadzący</label>
             <Select value={filterInstructorId || '__all__'} onValueChange={v => setFilterInstructorId(v === '__all__' ? '' : v)}>
               <SelectTrigger className="w-48 h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -504,7 +523,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Sala</label>
+            <label className="text-xs">Sala</label>
             <Select value={filterRoomId || '__all__'} onValueChange={v => setFilterRoomId(v === '__all__' ? '' : v)}>
               <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -517,7 +536,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] text-muted-foreground">Status</label>
+            <label className="text-xs">Status</label>
             <Select value={filterStatus || '__all__'} onValueChange={v => setFilterStatus(v === '__all__' ? '' : v)}>
               <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -548,23 +567,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
                 className="h-8 text-xs"
                 onClick={() => setShowCalendarDialog(true)}
               >
-                Kalendarze semestrów
-              </Button>
-            </div>
-            <div className="flex flex-col justify-end gap-1">
-              <label className="text-[11px] text-transparent select-none">_</label>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="h-8 text-xs"
-                disabled={deleteManyMutation.isPending}
-                onClick={() => {
-                  if (confirm('Usunąć WSZYSTKIE terminy z bazy danych? Tej operacji nie można cofnąć.')) {
-                    deleteManyMutation.mutate()
-                  }
-                }}
-              >
-                {deleteManyMutation.isPending ? 'Usuwanie...' : 'Wyczyść kalendarz semestru'}
+                Edytuj kalendarz
               </Button>
             </div>
           </div>
@@ -746,7 +749,7 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
 
       {entries.length === 0 && (
         <p className="text-center text-muted-foreground py-8 text-sm">
-          Brak terminów w tym tygodniu. Wygeneruj terminy z zakładki Wzorzec.
+          Brak terminów w tym tygodniu. Wybierz tryb i kliknij "Generuj terminy".
         </p>
       )}
 
@@ -770,6 +773,22 @@ export function CalendarTab({ academicYear }: { academicYear: string }) {
 
       {showCalendarDialog && (
         <CalendarDialog open onClose={() => setShowCalendarDialog(false)} />
+      )}
+
+      {showGenerateSemester && (
+        <GenerateSemesterDialog
+          open
+          academicYear={academicYear}
+          semesterType={semesterType}
+          studyMode={studyMode as StudyMode}
+          specializationId={specializationId || undefined}
+          fieldOfStudyId={fieldOfStudyId || undefined}
+          semester={semester ? parseInt(semester) : undefined}
+          facultyName={faculties.find(f => f.id === facultyId)?.shortName}
+          specializationName={specs.find(s => s.id === specializationId)?.name}
+          fieldOfStudyName={fields.find(f => f.id === fieldOfStudyId)?.name}
+          onClose={() => setShowGenerateSemester(false)}
+        />
       )}
 
       {addSlot && (

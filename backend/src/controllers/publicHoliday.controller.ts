@@ -38,6 +38,21 @@ export const create = async (req: Request, res: Response) => {
   }
 }
 
+export const update = async (req: Request, res: Response) => {
+  try {
+    const { name } = req.body as { name?: string }
+    if (!name) return res.status(400).json({ error: 'Brakujące pole: name' })
+    const data = await prisma.publicHoliday.update({
+      where: { id: req.params.id },
+      data: { name },
+    })
+    res.json({ data, message: 'Dzień wolny zaktualizowany' })
+  } catch (error) {
+    if (isNotFoundError(error)) return res.status(404).json({ error: 'Dzień wolny nie znaleziony' })
+    console.error(error); res.status(500).json({ error: 'Błąd serwera' })
+  }
+}
+
 export const remove = async (req: Request, res: Response) => {
   try {
     await prisma.publicHoliday.delete({ where: { id: req.params.id } })

@@ -24,7 +24,7 @@ import {
   update as updateCalendar,
   remove as removeCalendar,
 } from '../controllers/semesterCalendar.controller'
-import { getAll as getHolidays, create as createHoliday, remove as removeHoliday } from '../controllers/publicHoliday.controller'
+import { getAll as getHolidays, create as createHoliday, update as updateHoliday, remove as removeHoliday } from '../controllers/publicHoliday.controller'
 import { generateTemplate, generateSemester } from '../controllers/scheduleGenerator.controller'
 import { authenticate, authorize } from '../middleware/authenticate'
 
@@ -62,6 +62,7 @@ router.delete('/calendars/:id', authenticate, authorize('ADMIN'), removeCalendar
 // ─── Dni wolne ────────────────────────────────────────────────
 router.get('/holidays', authenticate, getHolidays)
 router.post('/holidays', authenticate, authorize('ADMIN'), createHoliday)
+router.put('/holidays/:id', authenticate, authorize('ADMIN'), updateHoliday)
 router.delete('/holidays/:id', authenticate, authorize('ADMIN'), removeHoliday)
 
 export default router

@@ -1,127 +1,86 @@
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { scheduleApi } from '@/api/schedule'
 import { useAcademicYearStore } from '@/store/academicYearStore'
 import { Button } from '@/components/ui/button'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { StudyMode } from '@/types'
+import type { SemesterCalendar } from '@/types'
 
-export function CalendarDialog({
-  open,
-  onClose,
-}: {
-  open: boolean
-  onClose: () => void
-}) {
+const STUDY_MODES = ['FULL_TIME', 'PART_TIME'] as const
+
+export function CalendarDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient()
   const { academicYear, semesterType } = useAcademicYearStore()
-  const [form, setForm] = useState({
-    academicYear,
-    semesterType: semesterType as 'WINTER' | 'SUMMER',
-    studyMode: 'FULL_TIME' as StudyMode,
-    startDate: '',
-    endDate: '',
-    teachingWeeks: '15',
-  })
-  const [error, setError] = useState('')
 
   const { data: existing } = useQuery({
     queryKey: ['calendars'],
     queryFn: () => scheduleApi.getCalendars(),
     enabled: open,
   })
-  const calendars = existing?.data.data ?? []
+  const allCalendars: SemesterCalendar[] = existing?.data.data ?? []
+  const contextCalendars = allCalendars.filter(
+    c => c.academicYear === academicYear && c.semesterType === semesterType
+  )
+  const reference = contextCalendars[0]
 
-  const mutation = useMutation({
-    mutationFn: () => scheduleApi.createCalendar({
-      academicYear: form.academicYear,
-      semesterType: form.semesterType,
-      studyMode: form.studyMode,
-      startDate: form.startDate,
-      endDate: form.endDate,
-      teachingWeeks: Number(form.teachingWeeks),
-    }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['calendars'] }); setError('') },
-    onError: (e: unknown) => {
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+
+  useEffect(() => {
+    if (reference) {
+      setStartDate(reference.startDate.slice(0, 10))
+      setEndDate(reference.endDate.slice(0, 10))
+    }
+  }, [reference?.id])
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
+
+  const semesterLabel = semesterType === 'WINTER' ? 'zimowy' : 'letni'
+
+  async function handleSave() {
+    setError('')
+    setPending(true)
+    try {
+      await Promise.all(STUDY_MODES.map(mode => {
+        const cal = contextCalendars.find(c => c.studyMode === mode)
+        return cal
+          ? scheduleApi.updateCalendar(cal.id, { startDate, endDate })
+          : scheduleApi.createCalendar({ academicYear, semesterType, studyMode: mode, startDate, endDate })
+      }))
+      qc.invalidateQueries({ queryKey: ['calendars'] })
+    } catch (e: unknown) {
       setError((e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Błąd')
-    },
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => scheduleApi.deleteCalendar(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['calendars'] }),
-  })
+    }
+    setPending(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Kalendarze semestrów</DialogTitle></DialogHeader>
-        <div className="space-y-4 py-2">
-          {calendars.length > 0 && (
-            <div className="space-y-2">
-              {calendars.map(c => (
-                <div key={c.id} className="flex items-center justify-between text-sm p-2 bg-muted/40 rounded">
-                  <span>{c.academicYear} · {c.semesterType} · {c.studyMode === 'FULL_TIME' ? 'St.' : 'Nst.'} · {c.teachingWeeks} tyg.</span>
-                  <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(c.id)}>✕</Button>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-sm font-medium">Nowy kalendarz</p>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Kalendarz semestru — {academicYear} {semesterLabel}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>Rok akademicki</Label>
-              <Input value={form.academicYear} onChange={e => setForm(f => ({ ...f, academicYear: e.target.value }))} placeholder="2024/2025" />
-            </div>
-            <div className="space-y-1">
-              <Label>Semestr</Label>
-              <Select value={form.semesterType} onValueChange={v => setForm(f => ({ ...f, semesterType: v as 'WINTER' | 'SUMMER' }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WINTER">Zimowy</SelectItem>
-                  <SelectItem value="SUMMER">Letni</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Tryb</Label>
-              <Select value={form.studyMode} onValueChange={v => setForm(f => ({ ...f, studyMode: v as StudyMode }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="FULL_TIME">Stacjonarne</SelectItem>
-                  <SelectItem value="PART_TIME">Niestacjonarne</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label>Tygodni</Label>
-              <Input type="number" value={form.teachingWeeks} onChange={e => setForm(f => ({ ...f, teachingWeeks: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
               <Label>Data początku</Label>
-              <Input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
+              <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
             </div>
             <div className="space-y-1">
               <Label>Data końca</Label>
-              <Input type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+              <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
             </div>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Zamknij</Button>
-          <Button
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !form.startDate || !form.endDate}
-          >
-            {mutation.isPending ? 'Dodawanie...' : 'Dodaj'}
+          <Button onClick={() => void handleSave()} disabled={pending || !startDate || !endDate}>
+            {pending ? 'Zapisywanie...' : reference ? 'Zapisz' : 'Utwórz'}
           </Button>
         </DialogFooter>
       </DialogContent>

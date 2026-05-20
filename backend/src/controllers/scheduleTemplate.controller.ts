@@ -22,7 +22,7 @@ const templateInclude = {
 
 export const getAll = async (req: Request, res: Response) => {
   try {
-    const { semester, semesterType, academicYear, studyMode, studentGroupId } = req.query
+    const { semester, semesterType, academicYear, studyMode, studentGroupId, specializationId, fieldOfStudyId } = req.query
     const semesterFilter = semester
       ? { semester: Number(semester) }
       : semesterType === 'WINTER'
@@ -36,6 +36,8 @@ export const getAll = async (req: Request, res: Response) => {
         ...(academicYear ? { academicYear: String(academicYear) } : {}),
         ...(studyMode ? { studyMode: studyMode as StudyMode } : {}),
         ...(studentGroupId ? { studentGroupId: String(studentGroupId) } : {}),
+        ...(specializationId ? { curriculumEntry: { curriculumVersion: { specializationId: String(specializationId) } } } : {}),
+        ...(fieldOfStudyId && !specializationId ? { curriculumEntry: { curriculumVersion: { specialization: { fieldOfStudyId: String(fieldOfStudyId) } } } } : {}),
       },
       include: templateInclude,
       orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],

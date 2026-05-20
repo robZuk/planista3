@@ -3,7 +3,7 @@ import type { ScheduleTemplate, ScheduleEntry, SemesterCalendar, PublicHoliday, 
 
 export const scheduleApi = {
   // ─── Wzorce tygodniowe ─────────────────────────────────────
-  getTemplates: (params: { semester?: number; semesterType?: 'WINTER' | 'SUMMER'; academicYear?: string; studyMode?: StudyMode; studentGroupId?: string } = {}) =>
+  getTemplates: (params: { semester?: number; semesterType?: 'WINTER' | 'SUMMER'; academicYear?: string; studyMode?: StudyMode; studentGroupId?: string; specializationId?: string; fieldOfStudyId?: string } = {}) =>
     client.get<{ data: ScheduleTemplate[] }>('/schedule/templates', { params }),
 
   getTemplate: (id: string) =>
@@ -128,10 +128,9 @@ export const scheduleApi = {
     studyMode: StudyMode
     startDate: string
     endDate: string
-    teachingWeeks: number
   }) => client.post<{ data: SemesterCalendar }>('/schedule/calendars', data),
 
-  updateCalendar: (id: string, data: Partial<{ startDate: string; endDate: string; teachingWeeks: number }>) =>
+  updateCalendar: (id: string, data: Partial<{ startDate: string; endDate: string }>) =>
     client.put<{ data: SemesterCalendar }>(`/schedule/calendars/${id}`, data),
 
   deleteCalendar: (id: string) =>
@@ -143,6 +142,9 @@ export const scheduleApi = {
 
   createHoliday: (data: { date: string; name: string }) =>
     client.post<{ data: PublicHoliday }>('/schedule/holidays', data),
+
+  updateHoliday: (id: string, data: { name: string }) =>
+    client.put<{ data: PublicHoliday }>(`/schedule/holidays/${id}`, data),
 
   deleteHoliday: (id: string) =>
     client.delete(`/schedule/holidays/${id}`),

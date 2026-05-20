@@ -202,7 +202,8 @@ export const generateTemplate = async (req: Request, res: Response) => {
     const existingTemplates = await prisma.scheduleTemplate.findMany({
       where: { academicYear },
       select: {
-        roomId: true, instructorId: true, dayOfWeek: true, startTime: true, endTime: true,
+        roomId: true, instructorId: true, studentGroupId: true,
+        dayOfWeek: true, startTime: true, endTime: true,
         weekType: true, curriculumEntryId: true, classType: true, academicHours: true,
       },
     })
@@ -327,6 +328,17 @@ export const generateTemplate = async (req: Request, res: Response) => {
           const isGroupSlotFree = (groupId: string, day: number, start: number, end: number, wt: WeekType) =>
             isFreeInSet(getGroupSet(groupId), `${day}`, start, end, wt)
 
+          // Pre-populate group slots from already saved templates (same spec+semester)
+          const currentGroupIds = new Set(groups.map(g => g.id))
+          for (const tmpl of existingTemplates) {
+            if (!tmpl.studentGroupId || !currentGroupIds.has(tmpl.studentGroupId)) continue
+            const day = dayNumberMap[tmpl.dayOfWeek]
+            const start = minsFromStr(tmpl.startTime)
+            const end = minsFromStr(tmpl.endTime)
+            const wt = (tmpl.weekType ?? 'EVERY') as WeekType
+            markGroupSlot(tmpl.studentGroupId, day, start, end, wt)
+          }
+
           const lectureGroup = groups.find(g => g.type === 'LECTURE')
           const defaultSize = lectureGroup?.size ?? 30
           const groupByType: Partial<Record<ClassType, typeof groups[number]>> = {
@@ -362,7 +374,7 @@ export const generateTemplate = async (req: Request, res: Response) => {
                 weekType = evenOddCounter % 2 === 0 ? 'EVEN' : 'ODD'
                 evenOddCounter++
               } else {
-                blockHours = Math.min(Math.max(Math.ceil(hoursPerWeekRaw), 1), 2)
+                blockHours = Math.min(Math.max(Math.ceil(hoursPerWeekRaw), 1), 4)
                 weekType = 'EVERY'
               }
               const teachingMinutes = blockHours * 45 + (blockHours - 1) * 15
@@ -604,7 +616,12 @@ export const generateSemester = async (req: Request, res: Response) => {
         hoursLimit = limitMap[template.classType] ?? Infinity
       }
       const existingHoursAgg = await prisma.scheduleEntry.aggregate({
-        where: { curriculumEntryId: template.curriculumEntryId, classType: template.classType, status: { not: 'CANCELLED' } },
+        where: {
+          curriculumEntryId: template.curriculumEntryId,
+          classType: template.classType,
+          status: { not: 'CANCELLED' },
+          date: { gte: calendar.startDate, lte: calendar.endDate },
+        },
         _sum: { academicHours: true },
       })
       let accumulatedHours = existingHoursAgg._sum.academicHours ?? 0

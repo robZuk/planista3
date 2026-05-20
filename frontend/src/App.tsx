@@ -11,6 +11,7 @@ import { GroupsPage } from '@/pages/GroupsPage'
 import { InstructorsPage } from '@/pages/InstructorsPage'
 import { BuildingsPage } from '@/pages/BuildingsPage'
 import { FacultiesPage } from '@/pages/FacultiesPage'
+import { HolidaysPage } from '@/pages/HolidaysPage'
 
 // Inicjalizuj motyw przed pierwszym renderem — zapobiega miganiu
 const stored = localStorage.getItem('theme')
@@ -81,6 +82,14 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['ADMIN', 'DEAN_OFFICE']}>
                   <FacultiesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/holidays"
+              element={
+                <ProtectedRoute roles={['ADMIN', 'DEAN_OFFICE']}>
+                  <HolidaysPage />
                 </ProtectedRoute>
               }
             />
